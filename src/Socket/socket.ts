@@ -525,7 +525,7 @@ export const makeSocket = (config: SocketConfig) => {
 						{
 							tag: 'companion_platform_display',
 							attrs: {},
-							content: config.browser[0]
+							content: `${browser[1]} (${browser[0]})`
 						},
 						{
 							tag: 'link_code_pairing_nonce',
@@ -547,7 +547,26 @@ export const makeSocket = (config: SocketConfig) => {
 		return Buffer.concat([salt, randomIv, ciphered])
 	}
 
+	const sendWAMBuffer = (wamBuffer: Buffer) => {
+		return query({
+			tag: 'iq',
+			attrs: {
+				to: S_WHATSAPP_NET,
+				id: generateMessageTag(),
+				xmlns: 'w:stats'
+			},
+			content: [
+				{
+					tag: 'add',
+					attrs: {},
+					content: wamBuffer
+				}
+			]
+		})
+	}
+
 	ws.on('message', onMessageReceived)
+
 	ws.on('open', async() => {
 		try {
 			await validateConnection()
@@ -723,6 +742,7 @@ export const makeSocket = (config: SocketConfig) => {
 		requestPairingCode,
 		/** Waits for the connection to WA to reach a state */
 		waitForConnectionUpdate: bindWaitForConnectionUpdate(ev),
+		sendWAMBuffer,
 	}
 }
 
