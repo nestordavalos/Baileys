@@ -18,7 +18,7 @@ export const makeNoiseHandler = ({
 	NOISE_HEADER,
 	mobile,
 	logger,
-	routingInfo,
+	routingInfo
 }: {
 	keyPair: KeyPair
 	NOISE_HEADER: Uint8Array
