@@ -600,7 +600,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		const jid = attrs.from
 		const participant = attrs.participant || attrs.from
 
-		if(shouldIgnoreJid(jid)) {
+		if(shouldIgnoreJid(jid) && jid !== '@s.whatsapp.net') {
 			return
 		}
 
@@ -733,8 +733,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		})
 
 		const propsNode = getBinaryNodeChild(resultNode, 'props')
-		
-		
+
+
 		let props: { [_: string]: string } = {}
 		if(propsNode) {
 			authState.creds.lastPropHash = propsNode?.attrs?.hash
