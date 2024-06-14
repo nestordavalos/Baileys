@@ -32,7 +32,8 @@ import {
 	getBinaryNodeChild,
 	getBinaryNodeChildBuffer,
 	getBinaryNodeChildren,
-	isJidGroup, isJidStatusBroadcast,
+	isJidGroup,
+	isJidStatusBroadcast,
 	isJidUser,
 	jidDecode,
 	jidNormalizedUser,
@@ -47,7 +48,10 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		retryRequestDelayMs,
 		maxMsgRetryCount,
 		getMessage,
-		shouldIgnoreJid
+		shouldIgnoreJid,
+		shouldIgnoreParticipant,
+		ignoreOfflineMessages,
+		resendReceipt
 	} = config
 	const sock = makeMessagesSocket(config)
 	const {
@@ -133,17 +137,18 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	}
 
 	const sendRetryRequest = async(node: BinaryNode, forceIncludeKeys = false) => {
-		const msgId = node.attrs.id
+		const { id: msgId, participant } = node.attrs
 
-		let retryCount = msgRetryCache.get<number>(msgId) || 0
+		const key = `${msgId}:${participant}`
+		let retryCount = msgRetryCache.get<number>(key) || 0
 		if(retryCount >= maxMsgRetryCount) {
 			logger.debug({ retryCount, msgId }, 'reached retry limit, clearing')
-			msgRetryCache.del(msgId)
+			msgRetryCache.del(key)
 			return
 		}
 
 		retryCount += 1
-		msgRetryCache.set(msgId, retryCount)
+		msgRetryCache.set(key, retryCount)
 
 		const { account, signedPreKey, signedIdentityKey: identityKey } = authState.creds
 
@@ -267,6 +272,11 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					ephemeralExpiration: +(child.attrs.expiration || 0)
 				}
 			}
+			break
+		case 'modify':
+			const oldNumber = getBinaryNodeChildren(child, 'participant').map(p => p.attrs.jid)
+			msg.messageStubParameters = oldNumber || []
+			msg.messageStubType = WAMessageStubType.GROUP_PARTICIPANT_CHANGE_NUMBER
 			break
 		case 'promote':
 		case 'demote':
@@ -590,6 +600,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			return
 		}
 
+		if(isJidGroup(attrs.from) && shouldIgnoreParticipant(attrs.participant)){
+			logger.debug({ remoteJid }, 'ignoring receipt from participant')
+			await sendMessageAck(node)
+			return
+		}
+
 		const ids = [attrs.id]
 		if(Array.isArray(content)) {
 			const items = getBinaryNodeChildren(content[0], 'item')
@@ -603,8 +619,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					if(
 						typeof status !== 'undefined' &&
 						(
-							// basically, we only want to know when a message from us has been delivered to/read by the other person
-							// or another device of ours has read some messages
+							// basically, we only want to know when a message from us has been delivered to/read by the other person or another device of ours has read some messages
 							status > proto.WebMessageInfo.Status.DELIVERY_ACK ||
 							!isNodeFromMe
 						)
@@ -634,20 +649,18 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 						}
 					}
 
-					if(attrs.type === 'retry') {
-						// correctly set who is asking for the retry
-						key.participant = key.participant || attrs.from
-						const retryNode = getBinaryNodeChild(node, 'retry')
-						if(willSendMessageAgain(ids[0], key.participant)) {
-							if(key.fromMe) {
-								try {
-									logger.debug({ attrs, key }, 'recv retry request')
-									await sendMessagesAgain(key, ids, retryNode!)
-								} catch(error) {
-									logger.error({ key, ids, trace: error.stack }, 'error in sending message again')
-								}
+					key.participant = key.participant || attrs.from
+
+					if(attrs.type === 'retry' && key.fromMe && resendReceipt) {
+						if (willSendMessageAgain(ids[0], key.participant)){
+							const retryUser: number = msgRetryCache.get(key.participant) || 0
+							if (retryUser < 2){
+								logger.debug({ attrs, key }, 'recv retry request')
+								const retryNode = getBinaryNodeChild(node, 'retry')
+								await sendMessagesAgain(key, ids, retryNode!)
+								msgRetryCache.set(key.participant, retryUser + 1)
 							} else {
-								logger.info({ attrs, key }, 'recv retry for not fromMe message')
+								logger.info({ attrs, key }, 'will not send message again, reached retry limit for user')
 							}
 						} else {
 							logger.info({ attrs, key }, 'will not send message again, as sent too many times')
@@ -662,6 +675,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const handleNotification = async(node: BinaryNode) => {
 		const remoteJid = node.attrs.from
 		if(shouldIgnoreJid(remoteJid) && remoteJid !== '@s.whatsapp.net') {
+			logger.debug({ remoteJid, id: node.attrs.id }, 'ignored notification')
+			await sendMessageAck(node)
+			return
+		}
+
+		if(isJidGroup(remoteJid) && shouldIgnoreParticipant(node.attrs.participant)){
 			logger.debug({ remoteJid, id: node.attrs.id }, 'ignored notification')
 			await sendMessageAck(node)
 			return
@@ -693,7 +712,19 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	}
 
 	const handleMessage = async(node: BinaryNode) => {
-		if(shouldIgnoreJid(node.attrs.from!) && node.attrs.from! !== '@s.whatsapp.net') {
+    		if(ignoreOfflineMessages && node.attrs.offline) {
+			logger.debug({ key: node.attrs.key }, 'ignored offline message')
+			await sendMessageAck(node)
+			return
+		}
+
+		if(isJidGroup(node.attrs.from) && shouldIgnoreParticipant(node.attrs.participant)){
+			logger.debug({ key: node.attrs.key }, 'ignored participant message')
+      		await sendMessageAck(node)
+			return
+		}
+
+		if(shouldIgnoreJid(node.attrs.from!) && node.attrs.from! !== '@s.whatsapp.net' && !areJidsSameUser(node.attrs.from!, authState.creds.me!.id)) {
 			logger.debug({ key: node.attrs.key }, 'ignored message')
 			await sendMessageAck(node)
 			return
