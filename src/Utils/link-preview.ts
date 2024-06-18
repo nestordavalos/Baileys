@@ -44,8 +44,8 @@ export const getUrlInfo = async(
 	},
 ): Promise<WAUrlInfo | undefined> => {
 	try {
-		for (const blackLink of opts.blacklistLinkPreview){
-			if (text.includes(blackLink)){
+		for(const blackLink of opts.blacklistLinkPreview) {
+			if(text.includes(blackLink)) {
 				return
 			}
 		}

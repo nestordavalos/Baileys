@@ -135,5 +135,5 @@ export const DEFAULT_CACHE_TTLS = {
 	SIGNAL_STORE: 10 * 60, // 10 minutes
 	MSG_RETRY: 60 * 60, // 1 hour
 	CALL_OFFER: 2 * 60, // 2 minutes
-	USER_DEVICES: 60 * 60, // 30 minutes
+	USER_DEVICES: 30 * 60, // 30 minutes
 }

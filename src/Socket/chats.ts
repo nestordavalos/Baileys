@@ -1,7 +1,7 @@
 import { Boom } from '@hapi/boom'
 import { proto } from '../../WAProto'
 import { PROCESSABLE_HISTORY_TYPES } from '../Defaults'
-import { ALL_WA_PATCH_NAMES, ChatModification, ChatMutation, LTHashState, MessageUpsertType, PresenceData, SocketConfig, WABusinessHoursConfig, WABusinessProfile, WAMediaUpload, WAMessage, WAPatchCreate, WAPatchName, WAPresence, WAPrivacyOnlineValue, WAPrivacyValue, WAReadReceiptsValue } from '../Types'
+import { ALL_WA_PATCH_NAMES, ChatModification, ChatMutation, LTHashState, MessageUpsertType, PresenceData, SocketConfig, WABusinessHoursConfig, WABusinessProfile, WAMediaUpload, WAMessage, WAPatchCreate, WAPatchName, WAPresence, WAPrivacyCallValue, WAPrivacyOnlineValue, WAPrivacyValue, WAReadReceiptsValue } from '../Types'
 import { chatModificationToAppPatch, ChatMutationMap, decodePatches, decodeSyncdSnapshot, encodeSyncdPatch, extractSyncdPatches, generateProfilePicture, getHistoryMsg, newLTHashState, processSyncAction } from '../Utils'
 import { makeMutex } from '../Utils/make-mutex'
 import processMessage from '../Utils/process-message'
@@ -82,6 +82,10 @@ export const makeChatsSocket = (config: SocketConfig) => {
 				]
 			}]
 		})
+	}
+
+	const updateCallPrivacy = async(value: WAPrivacyCallValue) => {
+		await privacyQuery('calladd', value)
 	}
 
 	const updateLastSeenPrivacy = async(value: WAPrivacyValue) => {
@@ -191,18 +195,36 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}).filter(item => item.exists)
 	}
 
-	const fetchStatus = async(jid: string) => {
-		const [result] = await interactiveQuery(
-			[{ tag: 'user', attrs: { jid } }],
+	const fetchStatus = async(...jids: string[]) => {
+		const list = jids.map((jid) => ({ tag: 'user', attrs: { jid } }))
+		const results = await interactiveQuery(
+			list,
 			{ tag: 'status', attrs: {} }
 		)
-		if(result) {
-			const status = getBinaryNodeChild(result, 'status')
+		return results.map(item => {
+			const status = getBinaryNodeChild(item, 'status')!
 			return {
-				status: status?.content!.toString(),
+				user: item.attrs.jid,
+				status: status?.content?.toString() || null,
 				setAt: new Date(+(status?.attrs.t || 0) * 1000)
 			}
-		}
+		})
+	}
+
+	const fetchDisappearingDuration = async(...jids: string[]) => {
+		const list = jids.map((jid) => ({ tag: 'user', attrs: { jid } }))
+		const results = await interactiveQuery(
+			list,
+			{ tag: 'disappearing_mode', attrs: {} }
+		)
+		return results.map(item => {
+			const result = getBinaryNodeChild(item, 'disappearing_mode')!
+			return {
+				user: item.attrs.jid,
+				duration: parseInt(result?.attrs.duration),
+				setAt: new Date(+(result?.attrs.t || 0) * 1000)
+			}
+		})
 	}
 
 	/** update the profile picture for yourself or a group */
@@ -605,7 +627,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			return
 		}
 
-		if(jid.endsWith('@g.us') && shouldIgnoreParticipant(participant)){
+		if(jid.endsWith('@g.us') && shouldIgnoreParticipant(participant)) {
 			return
 		}
 
@@ -976,11 +998,13 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		onWhatsApp,
 		fetchBlocklist,
 		fetchStatus,
+		fetchDisappearingDuration,
 		updateProfilePicture,
 		removeProfilePicture,
 		updateProfileStatus,
 		updateProfileName,
 		updateBlockStatus,
+		updateCallPrivacy,
 		updateLastSeenPrivacy,
 		updateOnlinePrivacy,
 		updateProfilePicturePrivacy,

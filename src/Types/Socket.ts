@@ -64,7 +64,6 @@ export type SocketConfig = {
     transactionOpts: TransactionCapabilityOptions
     /** marks the client as online whenever the socket successfully connects */
     markOnlineOnConnect: boolean
-
     /** provide a cache to store media, so does not have to be re-uploaded */
     mediaCache?: CacheStore
     /**
@@ -88,16 +87,13 @@ export type SocketConfig = {
      * entails uploading the jpegThumbnail to WA
      * */
     generateHighQualityLinkPreview: boolean
-
     /**
      * Returns if a jid should be ignored,
      * no event for that jid will be triggered.
      * Messages from that jid will also not be decrypted
      * */
     shouldIgnoreJid: (jid: string) => boolean | undefined
-
     shouldIgnoreParticipant: (jid: string) => boolean | undefined
-
     /**
      * Optionally patch the message before sending out
      * */
@@ -105,13 +101,11 @@ export type SocketConfig = {
         msg: proto.IMessage,
         recipientJids: string[],
     ) => Promise<proto.IMessage> | proto.IMessage
-
     /** verify app state MACs */
     appStateMacVerification: {
         patch: boolean
         snapshot: boolean
     }
-
     /** options for axios */
     options: AxiosRequestConfig<{}>
     /**
@@ -120,18 +114,13 @@ export type SocketConfig = {
      * (solves the "this message can take a while" issue) can be retried
      * */
     getMessage: (key: proto.IMessageKey) => Promise<proto.IMessage | undefined>
-
     /** cached group metadata, use to prevent redundant requests to WA & speed up msg sending */
     cachedGroupMetadata: (jid: string) => Promise<GroupMetadata | undefined>
-
     makeSignalRepository: (auth: SignalAuthState) => SignalRepository
-
     /** list to ignore link preview */
     blacklistLinkPreview: string[]
-
     /** enable or disable sendMessagesAgain */
     resendReceipt: boolean
-
     /** Socket passthrough */
     socket?: any
 }
