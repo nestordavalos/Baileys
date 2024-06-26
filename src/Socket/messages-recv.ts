@@ -730,9 +730,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					if(attrs.type === 'retry' && key.fromMe && resendReceipt) {
 						if(willSendMessageAgain(ids[0], key.participant)) {
 							const retryUser: number = msgRetryCache.get(key.participant) || 0
-							if(retryUser < 2) {
+							const retryNode = getBinaryNodeChild(node, 'retry')
+							if(isJidUser(attrs.from)) {
 								logger.debug({ attrs, key }, 'recv retry request')
-								const retryNode = getBinaryNodeChild(node, 'retry')
+								await sendMessagesAgain(key, ids, retryNode!)
+							} else if(retryUser < 2) {
+								logger.debug({ attrs, key }, 'recv retry request')
 								await sendMessagesAgain(key, ids, retryNode!)
 								msgRetryCache.set(key.participant, retryUser + 1)
 							} else {

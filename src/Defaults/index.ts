@@ -66,7 +66,7 @@ export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 	ignoreOfflineMessages: false,
 	syncFullHistory: false,
 	generateHighQualityLinkPreview: false,
-	resendReceipt: false,
+	resendReceipt: true,
 	connectTimeoutMs: 20_000,
 	keepAliveIntervalMs: 30_000,
 	maxMsgRetryCount: 5,
