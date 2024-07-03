@@ -548,8 +548,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		const result = await query({
 			tag: 'iq',
 			attrs: {
-				target: jid,
-				to: S_WHATSAPP_NET,
+				to: jid,
 				type: 'get',
 				xmlns: 'w:profile:picture'
 			},
