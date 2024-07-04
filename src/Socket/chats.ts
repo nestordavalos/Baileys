@@ -166,9 +166,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 
 		const usyncNode = getBinaryNodeChild(result, 'usync')
 		const listNode = getBinaryNodeChild(usyncNode, 'list')
-		const users = getBinaryNodeChildren(listNode, 'user')
-
-		return users
+		return getBinaryNodeChildren(listNode, 'user')
 	}
 
 	const onWhatsApp = async(...jids: string[]) => {

@@ -1,4 +1,3 @@
-
 import { Boom } from '@hapi/boom'
 import { randomBytes } from 'crypto'
 import NodeCache from 'node-cache'
@@ -588,7 +587,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	async function decipherLinkPublicKey(data: Uint8Array | Buffer) {
 		const buffer = toRequiredBuffer(data)
 		const salt = buffer.slice(0, 32)
-		const secretKey = await derivePairingCodeKey(authState.creds.pairingCode!, salt)
+		const secretKey = derivePairingCodeKey(authState.creds.pairingCode!, salt)
 		const iv = buffer.slice(32, 48)
 		const payload = buffer.slice(48, 80)
 		return aesDecryptCTR(payload, secretKey, iv)
@@ -842,7 +841,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					await decrypt()
 					// message failed to decrypt
 					if(msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
-						retryMutex.mutex(
+						await retryMutex.mutex(
 							async() => {
 								if(ws.isOpen) {
 									const encNode = getBinaryNodeChild(node, 'enc')
@@ -977,27 +976,26 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		await execTask()
 		ev.flush()
 
-		function execTask() {
-			return exec(node)
-				.catch(err => onUnexpectedError(err, identifier))
+		async function execTask() {
+			await exec(node).catch(err => onUnexpectedError(err, identifier))
 		}
 	}
 
 	// recv a message
 	ws.on('CB:message', (node: BinaryNode) => {
-		processNodeWithBuffer(node, 'processing message', handleMessage)
+		return processNodeWithBuffer(node, 'processing message', handleMessage)
 	})
 
-	ws.on('CB:call', async(node: BinaryNode) => {
-		processNodeWithBuffer(node, 'handling call', handleCall)
+	ws.on('CB:call', (node: BinaryNode) => {
+		return processNodeWithBuffer(node, 'handling call', handleCall)
 	})
 
-	ws.on('CB:receipt', node => {
-		processNodeWithBuffer(node, 'handling receipt', handleReceipt)
+	ws.on('CB:receipt', (node: BinaryNode) => {
+		return processNodeWithBuffer(node, 'handling receipt', handleReceipt)
 	})
 
-	ws.on('CB:notification', async(node: BinaryNode) => {
-		processNodeWithBuffer(node, 'handling notification', handleNotification)
+	ws.on('CB:notification', (node: BinaryNode) => {
+		return processNodeWithBuffer(node, 'handling notification', handleNotification)
 	})
 
 	ws.on('CB:ack,class:message', (node: BinaryNode) => {
@@ -1027,7 +1025,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			}
 
 			const protoMsg = proto.WebMessageInfo.fromObject(msg)
-			upsertMessage(protoMsg, call.offline ? 'append' : 'notify')
+			return upsertMessage(protoMsg, call.offline ? 'append' : 'notify')
 		}
 	})
 
