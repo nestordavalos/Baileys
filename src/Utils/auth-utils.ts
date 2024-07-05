@@ -134,7 +134,9 @@ export const addTransactionCapability = (
 					transactionCache[key] = transactionCache[key] || { }
 					Object.assign(transactionCache[key], data[key])
 
-					mutations[key] = mutations[key] || { }
+					if (key === 'sender-key-memory') {
+						return;
+					}
 					Object.assign(mutations[key], data[key])
 				}
 			} else {
