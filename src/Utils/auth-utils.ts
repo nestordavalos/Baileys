@@ -137,6 +137,7 @@ export const addTransactionCapability = (
 					if (key === 'sender-key-memory') {
 						return;
 					}
+					mutations[key] = mutations[key] || {}
 					Object.assign(mutations[key], data[key])
 				}
 			} else {
