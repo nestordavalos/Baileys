@@ -314,8 +314,11 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 	const relayMessage = async(
 		jid: string,
 		message: proto.IMessage,
-		{ messageId: msgId, participant, additionalAttributes, useUserDevicesCache, useCachedGroupMetadata, statusJidList }: MessageRelayOptions
+		{ messageId: msgId, participant, additionalAttributes, useUserDevicesCache, useCachedGroupMetadata, statusJidList, cachedGroupMetadata }: MessageRelayOptions
 	) => {
+		if (!!cachedGroupMetadata) {
+			console.warn("cachedGroupMetadata in relayMessage and sendMessage is deprecated. Please refer to https://github.com/WhiskeySockets/Baileys/pull/846 for more details")
+		}
 		const meId = authState.creds.me!.id
 
 		let shouldIncludeDeviceIdentity = false
@@ -719,6 +722,9 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			content: AnyMessageContent,
 			options: MiscMessageGenerationOptions = { }
 		) => {
+			if (!!options?.cachedGroupMetadata) {
+				console.warn("cachedGroupMetadata in relayMessage and sendMessage is deprecated. Please refer to https://github.com/WhiskeySockets/Baileys/pull/846 for more details")
+			}
 			const userJid = authState.creds.me!.id
 			if(
 				typeof content === 'object' &&
