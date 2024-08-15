@@ -33,7 +33,7 @@ import {
 	makeEventBuffer,
 	makeNoiseHandler,
 	printQRIfNecessaryListener,
-	promiseTimeout
+	promiseTimeout,
 } from '../Utils'
 import {
 	assertNodeErrorFree,

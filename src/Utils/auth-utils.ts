@@ -1,6 +1,7 @@
-import { randomBytes, randomUUID } from 'crypto'
+import { randomBytes } from 'crypto'
 import NodeCache from 'node-cache'
 import type { Logger } from 'pino'
+import { v4 as uuidv4 } from 'uuid'
 import { DEFAULT_CACHE_TTLS } from '../Defaults'
 import type { AuthenticationCreds, CacheStore, SignalDataSet, SignalDataTypeMap, SignalKeyStore, SignalKeyStoreWithTransaction, TransactionCapabilityOptions } from '../Types'
 import { Curve, signedKeyPair } from './crypto'
@@ -134,10 +135,7 @@ export const addTransactionCapability = (
 					transactionCache[key] = transactionCache[key] || { }
 					Object.assign(transactionCache[key], data[key])
 
-					if (key === 'sender-key-memory') {
-						return;
-					}
-					mutations[key] = mutations[key] || {}
+					mutations[key] = mutations[key] || { }
 					Object.assign(mutations[key], data[key])
 				}
 			} else {
@@ -211,8 +209,8 @@ export const initAuthCreds = (): AuthenticationCreds => {
 			unarchiveChats: false
 		},
 		// mobile creds
-		deviceId: Buffer.from(randomUUID().replace(/-/g, ''), 'hex').toString('base64url'),
-		phoneId: randomUUID(),
+		deviceId: Buffer.from(uuidv4().replace(/-/g, ''), 'hex').toString('base64url'),
+		phoneId: uuidv4(),
 		identityId: randomBytes(20),
 		registered: false,
 		backupToken: randomBytes(20),

@@ -5,16 +5,8 @@ import { platform, release } from 'os'
 import { Logger } from 'pino'
 import { proto } from '../../WAProto'
 import { version as baileysVersion } from '../Defaults/baileys-version.json'
-import { BaileysEventEmitter, BaileysEventMap, BrowsersMap, DisconnectReason, valueReplacer, valueReviver, WACallUpdateType, WAVersion } from '../Types'
+import { BaileysEventEmitter, BaileysEventMap, BrowsersMap, DisconnectReason, WACallUpdateType, WAVersion } from '../Types'
 import { BinaryNode, getAllBinaryNodeChildren, jidDecode } from '../WABinary'
-
-const COMPANION_PLATFORM_MAP = {
-	'Chrome': '49',
-	'Edge': '50',
-	'Firefox': '51',
-	'Opera': '53',
-	'Safari': '54'
-}
 
 const PLATFORM_MAP = {
 	'aix': 'AIX',
@@ -36,23 +28,22 @@ export const Browsers: BrowsersMap = {
 }
 
 export const getPlatformId = (browser: string) => {
-	return COMPANION_PLATFORM_MAP[browser] || '49'
+	const platformType = proto.DeviceProps.PlatformType[browser.toUpperCase()]
+	return platformType ? platformType.toString().charCodeAt(0).toString() : '49' //chrome
 }
 
 export const BufferJSON = {
-	replacer: (_: string, value: valueReplacer) => {
-		if(value?.type === 'Buffer' && Array.isArray(value?.data)) {
-			return {
-				type: 'Buffer',
-				data: Buffer.from(value?.data).toString('base64')
-			}
+	replacer: (k, value: any) => {
+		if(Buffer.isBuffer(value) || value instanceof Uint8Array || value?.type === 'Buffer') {
+			return { type: 'Buffer', data: Buffer.from(value?.data || value).toString('base64') }
 		}
 
 		return value
 	},
-	reviver: (_: string, value: valueReviver) => {
-		if(value?.type === 'Buffer') {
-			return Buffer.from(value?.data, 'base64')
+	reviver: (_, value: any) => {
+		if(typeof value === 'object' && !!value && (value.buffer === true || value.type === 'Buffer')) {
+			const val = value.data || value.value
+			return typeof val === 'string' ? Buffer.from(val, 'base64') : Buffer.from(val || [])
 		}
 
 		return value
@@ -61,7 +52,7 @@ export const BufferJSON = {
 
 export const getKeyAuthor = (
 	key: proto.IMessageKey | undefined | null,
-	meId = 'me'
+	meId: string = 'me'
 ) => (
 	(key?.fromMe ? meId : key?.participant || key?.remoteJid) || ''
 )
@@ -118,7 +109,7 @@ export const unixTimestampSeconds = (date: Date = new Date()) => Math.floor(date
 
 export type DebouncedTimeout = ReturnType<typeof debouncedTimeout>
 
-export const debouncedTimeout = (intervalMs = 1000, task?: () => void) => {
+export const debouncedTimeout = (intervalMs: number = 1000, task?: () => void) => {
 	let timeout: NodeJS.Timeout | undefined
 	return {
 		start: (newIntervalMs?: number, newTask?: () => void) => {
@@ -187,16 +178,18 @@ export async function promiseTimeout<T>(ms: number | undefined, promise: (resolv
 	return p as Promise<T>
 }
 
+// inspired from whatsmeow code
+// https://github.com/tulir/whatsmeow/blob/64bc969fbe78d31ae0dd443b8d4c80a5d026d07a/send.go#L42
 export const generateMessageIDV2 = (userId?: string): string => {
 	const data = Buffer.alloc(8 + 20 + 16)
 	data.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000)))
 
-	if(userId) {
-	  	const id = jidDecode(userId)
-	  	if(id?.user) {
+	if (userId) {
+		const id = jidDecode(userId)
+		if (id?.user) {
 			data.write(id.user, 8)
 			data.write('@c.us', 8 + id.user.length)
-	  	}
+		}
 	}
 
 	const random = randomBytes(16)
@@ -207,7 +200,7 @@ export const generateMessageIDV2 = (userId?: string): string => {
 }
 
 // generate a random ID to attach to a message
-export const generateMessageID = () => '3EB0' + randomBytes(6).toString('hex').toUpperCase()
+export const generateMessageID = () => '3EB0' + randomBytes(18).toString('hex').toUpperCase()
 
 export function bindWaitForEvent<T extends keyof BaileysEventMap>(ev: BaileysEventEmitter, event: T) {
 	return async(check: (u: BaileysEventMap[T]) => boolean | undefined, timeoutMs?: number) => {

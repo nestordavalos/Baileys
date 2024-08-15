@@ -25,7 +25,6 @@ export type URLGenerationOptions = {
 		headers?: AxiosRequestConfig<{}>['headers']
 	}
 	uploadImage?: WAMediaUploadFunction
-	blacklistLinkPreview: string[]
 	logger?: Logger
 }
 
@@ -39,17 +38,10 @@ export const getUrlInfo = async(
 	text: string,
 	opts: URLGenerationOptions = {
 		thumbnailWidth: THUMBNAIL_WIDTH_PX,
-		fetchOpts: { timeout: 3000 },
-		blacklistLinkPreview: []
+		fetchOpts: { timeout: 3000 }
 	},
 ): Promise<WAUrlInfo | undefined> => {
 	try {
-		for(const blackLink of opts.blacklistLinkPreview) {
-			if(text.includes(blackLink)) {
-				return
-			}
-		}
-
 		// retries
 		const retries = 0
 		const maxRetry = 5

@@ -23,16 +23,6 @@ export type BrowsersMap = {
     appropriate(browser: string): [string, string, string]
 }
 
-export type valueReplacer = {
-	data: number[]
-	type: string
-}
-
-export type valueReviver = {
-	data: string
-	type: string
-}
-
 export enum DisconnectReason {
     connectionClosed = 428,
     connectionLost = 408,

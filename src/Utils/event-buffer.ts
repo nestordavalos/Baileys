@@ -51,9 +51,6 @@ type BaileysBufferableEventEmitter = BaileysEventEmitter & {
 	flush(force?: boolean): boolean
 	/** is there an ongoing buffer */
 	isBuffering(): boolean
-	/** diff of ping */
-	ping: number
-	lastPings: number[]
 }
 
 /**
@@ -160,8 +157,6 @@ export const makeEventBuffer = (logger: Logger): BaileysBufferableEventEmitter =
 		on: (...args) => ev.on(...args),
 		off: (...args) => ev.off(...args),
 		removeAllListeners: (...args) => ev.removeAllListeners(...args),
-		ping: 0,
-		lastPings: [0, 0]
 	}
 }
 

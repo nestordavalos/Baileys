@@ -1,6 +1,7 @@
 import { GetCatalogOptions, ProductCreate, ProductUpdate, SocketConfig } from '../Types'
 import { parseCatalogNode, parseCollectionsNode, parseOrderDetailsNode, parseProductNode, toProductNode, uploadingNecessaryImagesOfProduct } from '../Utils/business'
-import { BinaryNode, getBinaryNodeChild, jidNormalizedUser, S_WHATSAPP_NET } from '../WABinary'
+import { BinaryNode, jidNormalizedUser, S_WHATSAPP_NET } from '../WABinary'
+import { getBinaryNodeChild } from '../WABinary/generic-utils'
 import { makeMessagesRecvSocket } from './messages-recv'
 
 export const makeBusinessSocket = (config: SocketConfig) => {

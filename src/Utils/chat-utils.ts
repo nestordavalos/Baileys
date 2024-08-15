@@ -359,7 +359,7 @@ export const decodeSyncdSnapshot = async(
 	snapshot: proto.ISyncdSnapshot,
 	getAppStateSyncKey: FetchAppStateSyncKey,
 	minimumVersionNumber: number | undefined,
-	validateMacs = true
+	validateMacs: boolean = true
 ) => {
 	const newState = newLTHashState()
 	newState.version = toNumber(snapshot.version!.version!)
@@ -411,7 +411,7 @@ export const decodePatches = async(
 	options: AxiosRequestConfig<any>,
 	minimumVersionNumber?: number,
 	logger?: Logger,
-	validateMacs = true
+	validateMacs: boolean = true
 ) => {
 	const newState: LTHashState = {
 		...initial,

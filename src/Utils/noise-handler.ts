@@ -163,7 +163,7 @@ export const makeNoiseHandler = ({
 
 			return frame
 		},
-		decodeFrame: (newData: Buffer | Uint8Array, onFrame: (buff: Uint8Array | BinaryNode) => void) => {
+		decodeFrame: async(newData: Buffer | Uint8Array, onFrame: (buff: Uint8Array | BinaryNode) => void) => {
 			// the binary protocol uses its own framing mechanism
 			// on top of the WS frames
 			// so we get this data and separate out the frames
@@ -183,8 +183,8 @@ export const makeNoiseHandler = ({
 				inBytes = inBytes.slice(size + 3)
 
 				if(isFinished) {
-					const result = decrypt(frame)
-					frame = decodeBinaryNode(result)
+					const result = decrypt(frame as Uint8Array)
+					frame = await decodeBinaryNode(result)
 				}
 
 				logger.trace({ msg: (frame as any)?.attrs?.id }, 'recv frame')

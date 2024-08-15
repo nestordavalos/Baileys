@@ -68,7 +68,7 @@ export function getMediaKeys(buffer: Uint8Array | string | null | undefined, med
 	const expandedMediaKey = hkdf(buffer, 112, { info: hkdfInfoKey(mediaType) })
 	return {
 		iv: expandedMediaKey.slice(0, 16),
-		cipherKey: expandedMediaKey.slice(16, 48), 
+		cipherKey: expandedMediaKey.slice(16, 48),
 		macKey: expandedMediaKey.slice(48, 80),
 	}
 }
@@ -80,14 +80,14 @@ const extractVideoThumb = async(
 	time: string,
 	size: { width: number, height: number },
 ) => new Promise((resolve, reject) => {
-	const cmd = `ffmpeg -ss ${time} -i ${path} -y -vf scale=${size.width}:-1 -vframes 1 -f image2 ${destPath}`
-	exec(cmd, (err) => {
-		if(err) {
-		reject(err)
-	} else {
-		resolve()
-	}
-	})
+    	const cmd = `ffmpeg -ss ${time} -i ${path} -y -vf scale=${size.width}:-1 -vframes 1 -f image2 ${destPath}`
+    	exec(cmd, (err) => {
+    		if(err) {
+			reject(err)
+		} else {
+			resolve()
+		}
+    	})
 }) as Promise<void>
 
 export const extractImageThumb = async(bufferOrFilePath: Readable | Buffer | string, width = 32) => {
@@ -290,8 +290,8 @@ export async function generateThumbnail(
 	file: string,
 	mediaType: 'video' | 'image',
 	options: {
-		logger?: Logger
-	}
+        logger?: Logger
+    }
 ) {
 	let thumbnail: string | undefined
 	let originalImageDimensions: { width: number, height: number } | undefined
@@ -453,8 +453,8 @@ const toSmallestChunkSize = (num: number) => {
 }
 
 export type MediaDownloadOptions = {
-	startByte?: number
-	endByte?: number
+    startByte?: number
+    endByte?: number
 	options?: AxiosRequestConfig<any>
 }
 
@@ -607,29 +607,18 @@ export const getWAUploadToServer = (
 		let urls: { mediaUrl: string, directPath: string } | undefined
 		const hosts = [ ...customUploadHosts, ...uploadInfo.hosts ]
 
-		// const chunks: Buffer[] = []
-		// for await (const chunk of stream) {
-		// 	chunks.push(chunk)
-		// }
-
-		// const reqBody = Buffer.concat(chunks)
 		fileEncSha256B64 = encodeBase64EncodedStringForUpload(fileEncSha256B64)
 
-		//for(const { hostname, maxContentLengthBytes } of hosts) {
-			for(const { hostname } of hosts) {
+		for(const { hostname } of hosts) {
 			logger.debug(`uploading to "${hostname}"`)
 
 			const auth = encodeURIComponent(uploadInfo.auth) // the auth token
 			const url = `https://${hostname}${MEDIA_PATH_MAP[mediaType]}/${fileEncSha256B64}?auth=${auth}&token=${fileEncSha256B64}`
 			let result: any
 			try {
-				// if(maxContentLengthBytes && reqBody.length > maxContentLengthBytes) {
-				// 	throw new Boom(`Body too large for "${hostname}"`, { statusCode: 413 })
-				// }
 
 				const body = await axios.post(
 					url,
-					//reqBody,
 					stream,
 					{
 						...options,

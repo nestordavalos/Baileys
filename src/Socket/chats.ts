@@ -1,6 +1,7 @@
 import { Boom } from '@hapi/boom'
+import NodeCache from 'node-cache'
 import { proto } from '../../WAProto'
-import { PROCESSABLE_HISTORY_TYPES } from '../Defaults'
+import { DEFAULT_CACHE_TTLS, PROCESSABLE_HISTORY_TYPES } from '../Defaults'
 import { ALL_WA_PATCH_NAMES, ChatModification, ChatMutation, LTHashState, MessageUpsertType, PresenceData, SocketConfig, WABusinessHoursConfig, WABusinessProfile, WAMediaUpload, WAMessage, WAPatchCreate, WAPatchName, WAPresence, WAPrivacyCallValue, WAPrivacyOnlineValue, WAPrivacyValue, WAReadReceiptsValue } from '../Types'
 import { chatModificationToAppPatch, ChatMutationMap, decodePatches, decodeSyncdSnapshot, encodeSyncdPatch, extractSyncdPatches, generateProfilePicture, getHistoryMsg, newLTHashState, processSyncAction } from '../Utils'
 import { makeMutex } from '../Utils/make-mutex'
@@ -17,7 +18,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		fireInitQueries,
 		appStateMacVerification,
 		shouldIgnoreJid,
-		shouldIgnoreParticipant,
 		shouldSyncHistoryMessage,
 	} = config
 	const sock = makeSocket(config)
@@ -36,6 +36,15 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	let pendingAppStateSync = false
 	/** this mutex ensures that the notifications (receipts, messages etc.) are processed in order */
 	const processingMutex = makeMutex()
+
+	const placeholderResendCache = config.placeholderResendCache || new NodeCache({
+		stdTTL: DEFAULT_CACHE_TTLS.MSG_RETRY, // 1 hour
+		useClones: false
+	})
+
+	if(!config.placeholderResendCache) {
+		config.placeholderResendCache = placeholderResendCache
+	}
 
 	/** helper function to fetch the given app state sync key */
 	const getAppStateSyncKey = async(keyId: string) => {
@@ -166,7 +175,9 @@ export const makeChatsSocket = (config: SocketConfig) => {
 
 		const usyncNode = getBinaryNodeChild(result, 'usync')
 		const listNode = getBinaryNodeChild(usyncNode, 'list')
-		return getBinaryNodeChildren(listNode, 'user')
+		const users = getBinaryNodeChildren(listNode, 'user')
+
+		return users
 	}
 
 	const onWhatsApp = async(...jids: string[]) => {
@@ -193,36 +204,18 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}).filter(item => item.exists)
 	}
 
-	const fetchStatus = async(...jids: string[]) => {
-		const list = jids.map((jid) => ({ tag: 'user', attrs: { jid } }))
-		const results = await interactiveQuery(
-			list,
+	const fetchStatus = async(jid: string) => {
+		const [result] = await interactiveQuery(
+			[{ tag: 'user', attrs: { jid } }],
 			{ tag: 'status', attrs: {} }
 		)
-		return results.map(item => {
-			const status = getBinaryNodeChild(item, 'status')!
+		if(result) {
+			const status = getBinaryNodeChild(result, 'status')
 			return {
-				user: item.attrs.jid,
-				status: status?.content?.toString() || null,
+				status: status?.content!.toString(),
 				setAt: new Date(+(status?.attrs.t || 0) * 1000)
 			}
-		})
-	}
-
-	const fetchDisappearingDuration = async(...jids: string[]) => {
-		const list = jids.map((jid) => ({ tag: 'user', attrs: { jid } }))
-		const results = await interactiveQuery(
-			list,
-			{ tag: 'disappearing_mode', attrs: {} }
-		)
-		return results.map(item => {
-			const result = getBinaryNodeChild(item, 'disappearing_mode')!
-			return {
-				user: item.attrs.jid,
-				duration: parseInt(result?.attrs.duration),
-				setAt: new Date(+(result?.attrs.t || 0) * 1000)
-			}
-		})
+		}
 	}
 
 	/** update the profile picture for yourself or a group */
@@ -626,10 +619,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			return
 		}
 
-		if(jid.endsWith('@g.us') && shouldIgnoreParticipant(participant)) {
-			return
-		}
-
 		if(tag === 'presence') {
 			presence = {
 				lastKnownPresence: attrs.type === 'unavailable' ? 'unavailable' : 'available',
@@ -897,6 +886,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 				msg,
 				{
 					shouldProcessHistoryMsg,
+					placeholderResendCache,
 					ev,
 					creds: authState.creds,
 					keyStore: authState.keys,
@@ -997,7 +987,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		onWhatsApp,
 		fetchBlocklist,
 		fetchStatus,
-		fetchDisappearingDuration,
 		updateProfilePicture,
 		removeProfilePicture,
 		updateProfileStatus,
