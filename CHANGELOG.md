@@ -1,9 +1,9 @@
-## 6.7.6 (2024-08-14)
+## 6.7.8 (2024-09-22)
 
 
-### Bug Fixes
+### Features
 
-* remove 'none' from updateGroupsAddPrivacy ([#966](https://github.com/WhiskeySockets/Baileys/issues/966)) ([ffafc16](https://github.com/WhiskeySockets/Baileys/commit/ffafc167fb667713229467d2ad62a9444fddc6e3))
+* add label feature ([#955](https://github.com/WhiskeySockets/Baileys/issues/955)) ([6ff9455](https://github.com/WhiskeySockets/Baileys/commit/6ff945502d9e78c42a1d05fca79f951e81b946df))
 
 
 
