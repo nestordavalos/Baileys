@@ -4,7 +4,7 @@ import { AuthenticationCreds } from '../Types'
 import { BufferJSON, initAuthCreds } from '../Utils'
 import logger from '../Utils/logger'
 
-const makeCacheManagerAuthState = async(store: Store, sessionKey: string) => {  
+const makeCacheManagerAuthState = async(store: Store, sessionKey: string) => {
 	const defaultKey = (file: string): string => `${sessionKey}:${file}`
 
 	const databaseConn = await caching(store)
