@@ -8,19 +8,32 @@ import { jidDecode } from '../WABinary'
 export function makeLibSignalRepository(auth: SignalAuthState): SignalRepository {
 	const storage = signalStorage(auth)
 	return {
-		decryptGroupMessage({ group, authorJid, msg }) {
+		async decryptGroupMessage({ group, authorJid, msg }) {
 			const senderName = jidToSignalSenderKeyName(group, authorJid)
 			const cipher = new GroupCipher(storage, senderName)
 
-			return cipher.decrypt(msg)
+			try {
+				return await cipher.decrypt(msg)
+			} catch (error) {
+				if (error.name === 'NoSessionError' || error.name === 'PreKeyError') {
+					// Intentar obtener y procesar la clave del remitente
+					await this.processSenderKeyDistributionMessage({
+						item: { groupId: group, axolotlSenderKeyDistributionMessage: msg },
+						authorJid
+					})
+					// Reintentar descifrado
+					return await cipher.decrypt(msg)
+				}
+				throw error
+			}
 		},
 		async processSenderKeyDistributionMessage({ item, authorJid }) {
 			const builder = new GroupSessionBuilder(storage)
 			const senderName = jidToSignalSenderKeyName(item.groupId!, authorJid)
 
 			const senderMsg = new SenderKeyDistributionMessage(null, null, null, null, item.axolotlSenderKeyDistributionMessage)
-			const { [senderName]: senderKey } = await auth.keys.get('sender-key', [senderName])
-			if(!senderKey) {
+			let senderKey = await storage.loadSenderKey(senderName)
+			if (!senderKey) {
 				await storage.storeSenderKey(senderName, new SenderKeyRecord())
 			}
 
@@ -30,15 +43,32 @@ export function makeLibSignalRepository(auth: SignalAuthState): SignalRepository
 			const addr = jidToSignalProtocolAddress(jid)
 			const session = new libsignal.SessionCipher(storage, addr)
 			let result: Buffer
-			switch (type) {
-			case 'pkmsg':
-				result = await session.decryptPreKeyWhisperMessage(ciphertext)
-				break
-			case 'msg':
-				result = await session.decryptWhisperMessage(ciphertext)
-				break
+			try {
+				switch (type) {
+					case 'pkmsg':
+						result = await session.decryptPreKeyWhisperMessage(ciphertext)
+						break
+					case 'msg':
+						result = await session.decryptWhisperMessage(ciphertext)
+						break
+				}
+			} catch (error) {
+				if (error.name === 'NoSessionError' || error.name === 'PreKeyError') {
+					// Intentar obtener la clave del remitente y reintentar
+					await this.injectE2ESession({ jid, session: ciphertext })
+					// Reintentar descifrado
+					switch (type) {
+						case 'pkmsg':
+							result = await session.decryptPreKeyWhisperMessage(ciphertext)
+							break
+						case 'msg':
+							result = await session.decryptWhisperMessage(ciphertext)
+							break
+					}
+				} else {
+					throw error
+				}
 			}
-
 			return result
 		},
 		async encryptMessage({ jid, data }) {
@@ -53,8 +83,8 @@ export function makeLibSignalRepository(auth: SignalAuthState): SignalRepository
 			const senderName = jidToSignalSenderKeyName(group, meId)
 			const builder = new GroupSessionBuilder(storage)
 
-			const { [senderName]: senderKey } = await auth.keys.get('sender-key', [senderName])
-			if(!senderKey) {
+			let senderKey = await storage.loadSenderKey(senderName)
+			if (!senderKey) {
 				await storage.storeSenderKey(senderName, new SenderKeyRecord())
 			}
 
@@ -90,7 +120,7 @@ function signalStorage({ creds, keys }: SignalAuthState) {
 	return {
 		loadSession: async(id: string) => {
 			const { [id]: sess } = await keys.get('session', [id])
-			if(sess) {
+			if (sess) {
 				return libsignal.SessionRecord.deserialize(sess)
 			}
 		},
@@ -103,7 +133,7 @@ function signalStorage({ creds, keys }: SignalAuthState) {
 		loadPreKey: async(id: number | string) => {
 			const keyId = id.toString()
 			const { [keyId]: key } = await keys.get('pre-key', [keyId])
-			if(key) {
+			if (key) {
 				return {
 					privKey: Buffer.from(key.private),
 					pubKey: Buffer.from(key.public)
@@ -120,7 +150,7 @@ function signalStorage({ creds, keys }: SignalAuthState) {
 		},
 		loadSenderKey: async(keyId: string) => {
 			const { [keyId]: key } = await keys.get('sender-key', [keyId])
-			if(key) {
+			if (key) {
 				return new SenderKeyRecord(key)
 			}
 		},
