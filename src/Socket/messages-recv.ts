@@ -938,7 +938,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		return sendPeerDataOperationMessage(pdoMessage)
 	}
 
-	const requestPlaceholderResend = async(messageKey: WAMessageKey): Promise<'RESOLVED'| string | undefined> => {
+	const requestPlaceholderResend = async(messageKey: WAMessageKey): Promise<string | undefined> => {
 		if(!authState.creds.me?.id) {
 			throw new Boom('Not authenticated')
 		}
@@ -1126,7 +1126,9 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		...sock,
 		sendMessageAck,
 		sendRetryRequest,
+		offerCall,
 		rejectCall,
+		terminateCall,
 		fetchMessageHistory,
 		requestPlaceholderResend,
 	}
