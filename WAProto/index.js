@@ -47336,7 +47336,7 @@ $root.proto = (function() {
                     break;
                 case "SINGLE_SELECT":
                 case 1:
-                    message.listType = 1;
+                    message.listType = 2;
                     break;
                 case "PRODUCT_LIST":
                 case 2:
