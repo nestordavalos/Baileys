@@ -16,11 +16,12 @@ import {
 	derivePairingCodeKey,
 	encodeBigEndian,
 	encodeSignedDeviceIdentity,
-	generateMessageIDV2,
 	getCallStatusFromNode,
 	getHistoryMsg,
 	getNextPreKeys,
 	getStatusFromReceiptType, hkdf,
+	MISSING_KEYS_ERROR_TEXT,
+	NACK_REASONS,
 	NO_MESSAGE_FOUND_ERROR_TEXT,
 	unixTimestampSeconds,
 	xmppPreKey,
@@ -38,7 +39,6 @@ import {
 	isJidGroup, isJidStatusBroadcast,
 	isJidUser,
 	jidDecode,
-	jidEncode,
 	jidNormalizedUser,
 	S_WHATSAPP_NET
 } from '../WABinary'
@@ -70,8 +70,6 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		sendReceipt,
 		uploadPreKeys,
 		sendPeerDataOperationMessage,
-		createParticipantNodes,
-		getUSyncDevices,
 	} = sock
 
 	/** this mutex ensures that each retryRequest will wait for the previous one to finish */
@@ -93,14 +91,18 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 	let sendActiveReceipts = false
 
-	const sendMessageAck = async({ tag, attrs, content }: BinaryNode) => {
+	const sendMessageAck = async({ tag, attrs, content }: BinaryNode, errorCode?: number) => {
 		const stanza: BinaryNode = {
 			tag: 'ack',
 			attrs: {
 				id: attrs.id,
 				to: attrs.from,
-				class: tag,
+				class: tag
 			}
+		}
+
+		if(!!errorCode) {
+		  stanza.attrs.error = errorCode.toString()
 		}
 
 		if(!!attrs.participant) {
@@ -111,7 +113,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			stanza.attrs.recipient = attrs.recipient
 		}
 
-		if(!!attrs.type && (tag !== 'message' || getBinaryNodeChild({ tag, attrs, content }, 'unavailable'))) {
+		if(!!attrs.type && (tag !== 'message' || getBinaryNodeChild({ tag, attrs, content }, 'unavailable') || errorCode !== 0)) {
 			stanza.attrs.type = attrs.type
 		}
 
@@ -123,95 +125,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		await sendNode(stanza)
 	}
 
-	const offerCall = async(toJid: string, isVideo = false) => {
-		const callId = randomBytes(16).toString('hex').toUpperCase().substring(0, 64)
-
-		const offerContent: BinaryNode[] = []
-		offerContent.push({ tag: 'audio', attrs: { enc: 'opus', rate: '16000' }, content: undefined })
-		offerContent.push({ tag: 'audio', attrs: { enc: 'opus', rate: '8000' }, content: undefined })
-
-		if(isVideo) {
-			offerContent.push({
-				tag: 'video',
-				attrs: { enc: 'vp8', dec: 'vp8', orientation: '0', 'screen_width': '1920', 'screen_height': '1080', 'device_orientation': '0' },
-				content: undefined
-			})
-		}
-
-		offerContent.push({ tag: 'net', attrs: { medium: '3' }, content: undefined })
-		offerContent.push({ tag: 'capability', attrs: { ver: '1' }, content: new Uint8Array([1, 4, 255, 131, 207, 4]) })
-		offerContent.push({ tag: 'encopt', attrs: { keygen: '2' }, content: undefined })
-
-		const encKey = randomBytes(32)
-
-		const devices = (await getUSyncDevices([toJid], true, false)).map(({ user, device }) => jidEncode(user, 's.whatsapp.net', device))
-
-		await assertSessions(devices, true)
-
-		const { nodes: destinations, shouldIncludeDeviceIdentity } = await createParticipantNodes(devices, {
-			call: {
-				callKey: new Uint8Array(encKey)
-			}
-		}, { count: '0' })
-
-		offerContent.push({ tag: 'destination', attrs: {}, content: destinations })
-
-		if(shouldIncludeDeviceIdentity) {
-			offerContent.push({
-				tag: 'device-identity',
-				attrs: {},
-				content: encodeSignedDeviceIdentity(authState.creds.account!, true)
-			})
-		}
-
-		const stanza: BinaryNode = ({
-			tag: 'call',
-			attrs: {
-				id: generateMessageIDV2(),
-				to: toJid,
-			},
-			content: [{
-				tag: 'offer',
-				attrs: {
-					'call-id': callId,
-					'call-creator': authState.creds.me!.id,
-				},
-				content: offerContent,
-			}],
-		})
-		await query(stanza)
-		return {
-			id: callId,
-			to: toJid
-		}
-	}
-
-	const terminateCall = async(callId: string, toJid: string) => {
-		const stanza: BinaryNode = ({
-			tag: 'call',
-			attrs: {
-				id: generateMessageIDV2(),
-				to: toJid,
-			},
-			content: [{
-			    tag: 'terminate',
-			    attrs: {
-					'call-id': callId,
-					'call-creator': toJid,
-			    },
-			    content: undefined,
-			}],
-		})
-		await query(stanza)
-	}
-
 	const rejectCall = async(callId: string, callFrom: string) => {
 		const stanza: BinaryNode = ({
 			tag: 'call',
 			attrs: {
-				id: generateMessageIDV2(),
-				to: callFrom,
 				from: authState.creds.me!.id,
+				to: callFrom,
 			},
 			content: [{
 			    tag: 'reject',
@@ -682,7 +601,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const handleReceipt = async(node: BinaryNode) => {
+	const handleReceipt = async(node: BinaryNode, offline: boolean) => {
 		const { attrs, content } = node
 		const isLid = attrs.from.includes('lid')
 		const isNodeFromMe = areJidsSameUser(attrs.participant || attrs.from, isLid ? authState.creds.me?.lid : authState.creds.me?.id)
@@ -774,7 +693,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const handleNotification = async(node: BinaryNode) => {
+	const handleNotification = async(node: BinaryNode, offline: boolean) => {
 		const remoteJid = node.attrs.from
 		if(shouldIgnoreJid(remoteJid) && remoteJid !== '@s.whatsapp.net') {
 			logger.debug({ remoteJid, id: node.attrs.id }, 'ignored notification')
@@ -810,7 +729,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const handleMessage = async(node: BinaryNode) => {
+	const handleMessage = async(node: BinaryNode, offline: boolean) => {
+  	if(offline) {
+    	await sendMessageAck(node)
+			return
+  	}
+
 		if(shouldIgnoreJid(node.attrs.from) && node.attrs.from !== '@s.whatsapp.net') {
 			logger.debug({ key: node.attrs.key }, 'ignored message')
 			await sendMessageAck(node)
@@ -858,6 +782,10 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 						await decrypt()
 						// message failed to decrypt
 						if(msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
+						  if(msg?.messageStubParameters?.[0] === MISSING_KEYS_ERROR_TEXT) {
+								return sendMessageAck(node, NACK_REASONS.ParsingError)
+							}
+
 							retryMutex.mutex(
 								async() => {
 									if(ws.isOpen) {
@@ -903,12 +831,14 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 						cleanMessage(msg, authState.creds.me!.id)
 
+						await sendMessageAck(node)
+
 						await upsertMessage(msg, node.attrs.offline ? 'append' : 'notify')
 					}
 				)
 			])
-		} finally {
-			await sendMessageAck(node)
+		} catch(error) {
+			logger.error({ error, node }, 'error in handling message')
 		}
 	}
 
@@ -1052,35 +982,98 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const processNodeWithBuffer = async<T>(
 		node: BinaryNode,
 		identifier: string,
-		exec: (node: BinaryNode) => Promise<T>
+		exec: (node: BinaryNode, offline: boolean) => Promise<T>
 	) => {
 		ev.buffer()
 		await execTask()
 		ev.flush()
 
 		function execTask() {
-			return exec(node)
+			return exec(node, false)
 				.catch(err => onUnexpectedError(err, identifier))
+		}
+	}
+
+	type MessageType = 'message' | 'call' | 'receipt' | 'notification'
+
+	type OfflineNode = {
+		type: MessageType
+		node: BinaryNode
+	}
+
+	const makeOfflineNodeProcessor = () => {
+		const nodeProcessorMap: Map<MessageType, (node: BinaryNode, offline: boolean) => Promise<void>> = new Map([
+			['message', handleMessage],
+			['call', handleCall],
+			['receipt', handleReceipt],
+			['notification', handleNotification]
+		])
+		const nodes: OfflineNode[] = []
+		let isProcessing = false
+
+		const enqueue = (type: MessageType, node: BinaryNode) => {
+			nodes.push({ type, node })
+
+			if(isProcessing) {
+				return
+			}
+
+			isProcessing = true
+
+			const promise = async() => {
+				while(nodes.length && ws.isOpen) {
+					const { type, node } = nodes.shift()!
+
+					const nodeProcessor = nodeProcessorMap.get(type)
+
+					if(!nodeProcessor) {
+						onUnexpectedError(
+							new Error(`unknown offline node type: ${type}`),
+							'processing offline node'
+						)
+						continue
+					}
+
+					await nodeProcessor(node, true)
+				}
+
+				isProcessing = false
+			}
+
+			promise().catch(error => onUnexpectedError(error, 'processing offline nodes'))
+		}
+
+		return { enqueue }
+	}
+
+	const offlineNodeProcessor = makeOfflineNodeProcessor()
+
+	const processNode = (type: MessageType, node: BinaryNode, identifier: string, exec: (node: BinaryNode, offline: boolean) => Promise<void>) => {
+		const isOffline = !!node.attrs.offline
+
+		if(isOffline) {
+			offlineNodeProcessor.enqueue(type, node)
+		} else {
+			processNodeWithBuffer(node, identifier, exec)
 		}
 	}
 
 	// recv a message
 	ws.on('CB:message', (node: BinaryNode) => {
-		processNodeWithBuffer(node, 'processing message', handleMessage)
+		processNode('message', node, 'processing message', handleMessage)
 	})
 
 	ws.on('CB:call', async(node: BinaryNode) => {
-		processNodeWithBuffer(node, 'handling call', handleCall)
+		processNode('call', node, 'handling call', handleCall)
 	})
 
 	ws.on('CB:receipt', node => {
-		processNodeWithBuffer(node, 'handling receipt', handleReceipt)
+		processNode('receipt', node, 'handling receipt', handleReceipt)
 	})
 
 	ws.on('CB:notification', async(node: BinaryNode) => {
-		processNodeWithBuffer(node, 'handling notification', handleNotification)
+		processNode('notification', node, 'handling notification', handleNotification)
 	})
-
 	ws.on('CB:ack,class:message', (node: BinaryNode) => {
 		handleBadAck(node)
 			.catch(error => onUnexpectedError(error, 'handling bad ack'))
@@ -1123,9 +1116,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		...sock,
 		sendMessageAck,
 		sendRetryRequest,
-		offerCall,
 		rejectCall,
-		terminateCall,
 		fetchMessageHistory,
 		requestPlaceholderResend,
 	}
