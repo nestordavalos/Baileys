@@ -1017,10 +1017,19 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		// it means -- the message hasn't reached all devices yet
 		// we'll retry sending the message here
 		if(attrs.phash) {
+			const maxRetries = 3; // Número máximo de reintentos
+			const retryCount = msgRetryCache.get<number>(key.id!) || 0;
+		
+			if(retryCount >= maxRetries) {
+				logger.warn({ attrs }, 'max retries reached, not resending message');
+				return;
+			}
+		
 			logger.info({ attrs }, 'received phash in ack, resending message...')
 			const msg = await getMessage(key)
 			if(msg) {
 				await relayMessage(key.remoteJid!, msg, { messageId: key.id!, useUserDevicesCache: false })
+				msgRetryCache.set(key.id!, retryCount + 1); // Incrementar el contador de reintentos
 			} else {
 				logger.warn({ attrs }, 'could not send message again, as it was not found')
 			}
