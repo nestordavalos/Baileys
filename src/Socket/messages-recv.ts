@@ -1030,6 +1030,17 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			if(msg) {
 				await relayMessage(key.remoteJid!, msg, { messageId: key.id!, useUserDevicesCache: false })
 				msgRetryCache.set(key.id!, retryCount + 1); // Incrementar el contador de reintentos
+			try {
+				const msg = await getMessage(key)
+				if(msg) {
+					await relayMessage(key.remoteJid!, msg, { messageId: key.id!, useUserDevicesCache: false })
+					msgRetryCache.set(key.id!, retryCount + 1) // Increment retry count
+				} else {
+					logger.warn({ attrs }, 'could not send message again, as it was not found')
+				}
+			} catch (error) {
+				logger.error({ attrs, error }, 'error in message retry mechanism')
+			}
 			} else {
 				logger.warn({ attrs }, 'could not send message again, as it was not found')
 			}
