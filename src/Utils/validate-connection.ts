@@ -9,7 +9,6 @@ import { encodeBigEndian } from './generics'
 import { createSignalIdentity } from './signal'
 
 const getUserAgent = (config: SocketConfig): proto.ClientPayload.IUserAgent => {
-
 	return {
 		appVersion: {
 			primary: config.version[0],

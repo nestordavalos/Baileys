@@ -671,13 +671,13 @@ export const makeSocket = (config: SocketConfig) => {
 	})
 
 	ws.on('CB:ib,,offline_preview', (node: BinaryNode) => {
-		logger.info('offline preview received', node)
-		  sendNode({
-			  tag: 'ib',
-			  attrs: {},
-			  content: [{ tag: 'offline_batch', attrs: { count: '100' } }]
-		  })
-	  })
+	  logger.info('offline preview received', node)
+		sendNode({
+			tag: 'ib',
+			attrs: {},
+			content: [{ tag: 'offline_batch', attrs: { count: '100' } }]
+		})
+	})
 
 	ws.on('CB:ib,,edge_routing', (node: BinaryNode) => {
 		const edgeRoutingNode = getBinaryNodeChild(node, 'edge_routing')
