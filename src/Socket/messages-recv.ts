@@ -946,15 +946,15 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		// current hypothesis is that if pash is sent in the ack
 		// it means -- the message hasn't reached all devices yet
 		// we'll retry sending the message here
-		if(attrs.phash) {
-			logger.info({ attrs }, 'received phash in ack, resending message...')
-			const msg = await getMessage(key)
-			if(msg) {
-				await relayMessage(key.remoteJid!, msg, { messageId: key.id!, useUserDevicesCache: false })
-			} else {
-				logger.warn({ attrs }, 'could not send message again, as it was not found')
-			}
-		}
+		// if(attrs.phash) {
+		// 	logger.info({ attrs }, 'received phash in ack, resending message...')
+		// 	const msg = await getMessage(key)
+		// 	if(msg) {
+		// 		await relayMessage(key.remoteJid!, msg, { messageId: key.id!, useUserDevicesCache: false })
+		// 	} else {
+		// 		logger.warn({ attrs }, 'could not send message again, as it was not found')
+		// 	}
+		// }
 
 		// error in acknowledgement,
 		// device could not display the message
