@@ -298,26 +298,26 @@ const processMessage = async(
 					}
 				}
 			}
-			case proto.Message.ProtocolMessage.Type.MESSAGE_EDIT:
-				ev.emit(
-					'messages.update',
-					[
-						{
-							key: protocolMsg.key!,
-							update: {
-								message: {
-									editedMessage: {
-										message: protocolMsg.editedMessage
-									}
-								},
-								messageTimestamp: protocolMsg.timestampMs
-									? Math.floor(toNumber(protocolMsg.timestampMs) / 1000)
-									: message.messageTimestamp
-							}
-						}
-					]
-				)
 
+		case proto.Message.ProtocolMessage.Type.MESSAGE_EDIT:
+			ev.emit(
+				'messages.update',
+				[
+					{
+						key: protocolMsg.key!,
+						update: {
+							message: {
+								editedMessage: {
+									message: protocolMsg.editedMessage
+								}
+							},
+							messageTimestamp: protocolMsg.timestampMs
+								? Math.floor(toNumber(protocolMsg.timestampMs) / 1000)
+								: message.messageTimestamp
+						}
+					}
+				]
+			)
 			break
 		}
 	} else if(content?.reactionMessage) {
