@@ -276,35 +276,38 @@ const processMessage = async(
 				ephemeralExpiration: protocolMsg.ephemeralExpiration || null
 			})
 			break
-		case proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE:
-			const response = protocolMsg.peerDataOperationRequestResponseMessage!
+		case proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE: {
+			const response = protocolMsg.peerDataOperationRequestResponseMessage;
 			if(response) {
-				placeholderResendCache?.del(response.stanzaId!)
+				placeholderResendCache?.del(response.stanzaId ?? '');
 				// TODO: IMPLEMENT HISTORY SYNC ETC (sticker uploads etc.).
-				const { peerDataOperationResult } = response
-				for(const result of peerDataOperationResult!) {
-					const { placeholderMessageResendResponse: retryResponse } = result
+				const { peerDataOperationResult } = response;
+				for(const result of peerDataOperationResult ?? []) {
+					const { placeholderMessageResendResponse: retryResponse } = result;
 					//eslint-disable-next-line max-depth
 					if(retryResponse) {
-						const webMessageInfo = proto.WebMessageInfo.decode(retryResponse.webMessageInfoBytes!)
+						const webMessageInfo = proto.WebMessageInfo.decode(retryResponse.webMessageInfoBytes ?? new Uint8Array());
 						// wait till another upsert event is available, don't want it to be part of the PDO response message
 						setTimeout(() => {
 							ev.emit('messages.upsert', {
 								messages: [webMessageInfo],
 								type: 'notify',
-								requestId: response.stanzaId!
-							})
-						}, 500)
+								requestId: response.stanzaId ?? ''
+							});
+						}, 500);
 					}
 				}
 			}
+			break;
+		}
 
 		case proto.Message.ProtocolMessage.Type.MESSAGE_EDIT:
 			ev.emit(
 				'messages.update',
 				[
 					{
-						key: protocolMsg.key!,
+					  // flip the sender / fromMe properties because they're in the perspective of the sender
+						key: { ...message.key, id: protocolMsg.key?.id },
 						update: {
 							message: {
 								editedMessage: {
