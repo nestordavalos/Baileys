@@ -326,7 +326,6 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		const { user, server } = jidDecode(jid)!
 		const statusJid = 'status@broadcast'
 		const isGroup = server === 'g.us'
-		const isNewsletter = server == 'newsletter'
 		const isStatus = jid === statusJid
 		const isLid = server === 'lid'
 
@@ -335,7 +334,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		useCachedGroupMetadata = useCachedGroupMetadata !== false && !isStatus
 
 		const participants: BinaryNode[] = []
-		const destinationJid = (!isStatus) ? jidEncode(user, isLid ? 'lid' : isGroup ? 'g.us' : isNewsletter ? 'newsletter' : 's.whatsapp.net') : statusJid
+		const destinationJid = (!isStatus) ? jidEncode(user, isLid ? 'lid' : isGroup ? 'g.us' : 's.whatsapp.net') : statusJid
 		const binaryNodeContent: BinaryNode[] = []
 		const devices: JidWithDevice[] = []
 
@@ -452,27 +451,6 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					})
 
 					await authState.keys.set({ 'sender-key-memory': { [jid]: senderKeyMap } })
-				} else if(isNewsletter) {
-				    // Message edit
-					if (message.protocolMessage?.editedMessage) {
-						msgId = message.protocolMessage.key?.id!
-						message = message.protocolMessage.editedMessage
-					}
-
-					// Message delete
-					if (message.protocolMessage?.type === proto.Message.ProtocolMessage.Type.REVOKE) {
-						msgId = message.protocolMessage.key?.id!
-						message = {}
-					}
-
-					const patched = await patchMessageBeforeSending(message, [])
-					const bytes = encodeNewsletterMessage(patched)
-
-					binaryNodeContent.push({
-						tag: 'plaintext',
-						attrs: mediaType ? { mediatype: mediaType } : {},
-						content: bytes
-					})
 				} else {
 					const { user: meUser } = jidDecode(meId)!
 
@@ -586,25 +564,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				}
 
 				if(additionalNodes && additionalNodes.length > 0) {
-                   (stanza.content as BinaryNode[]).push(...additionalNodes);
-				} else {
-	 			   if((isJidGroup(jid) || isJidUser(jid)) && (message?.viewOnceMessage?.message?.interactiveMessage || message?.viewOnceMessageV2?.message?.interactiveMessage || message?.viewOnceMessageV2Extension?.message?.interactiveMessage || message?.interactiveMessage) || (message?.viewOnceMessage?.message?.buttonsMessage || message?.viewOnceMessageV2?.message?.buttonsMessage || message?.viewOnceMessageV2Extension?.message?.buttonsMessage || message?.buttonsMessage)) {
-					(stanza.content as BinaryNode[]).push({
-						tag: 'biz',
-						attrs: {},
-						content: [{
-							tag: 'interactive',
-							attrs: {
-				   				type: 'native_flow',
-			      				v: '1'
-							},
-							content: [{
-			   					tag: 'native_flow',
-			   					attrs: { name: 'quick_reply' }
-							}]
-    					}]
-				    });
-				  }
+					(stanza.content as BinaryNode[]).push(...additionalNodes)
 				}
 
 				logger.debug({ msgId }, `sending message to ${participants.length} devices`)
@@ -621,29 +581,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		if(message.pollCreationMessage || message.pollCreationMessageV2 || message.pollCreationMessageV3) {
 			return 'poll'
 		}
-		return 'text'
-	}
 
-	const getTypeMessage = (msg: proto.IMessage) => {
-		if (msg.viewOnceMessage) {
-			return getTypeMessage(msg.viewOnceMessage.message!)
-		} else if (msg.viewOnceMessageV2) {
-			return getTypeMessage(msg.viewOnceMessageV2.message!)
-		} else if (msg.viewOnceMessageV2Extension) {
-			return getTypeMessage(msg.viewOnceMessageV2Extension.message!)
-		} else if (msg.ephemeralMessage) {
-			return getTypeMessage(msg.ephemeralMessage.message!)
-		} else if (msg.documentWithCaptionMessage) {
-			return getTypeMessage(msg.documentWithCaptionMessage.message!)
-		} else if (msg.reactionMessage) {
-			return 'reaction'
-		} else if (msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3 || msg.pollUpdateMessage) {
-			return 'poll'
-		} else if (getMediaType(msg)) {
-			return 'media'
-		} else {
-			return 'text'
-		}
+		return 'text'
 	}
 
 	const getMediaType = (message: proto.IMessage) => {
@@ -828,7 +767,6 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					disappearingMessagesInChat
 				await groupToggleEphemeral(jid, value)
 			} else {
-		    	let mediaHandle
 				const fullMsg = await generateWAMessage(
 					jid,
 					content,
@@ -851,11 +789,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 						),
 						//TODO: CACHE
 						getProfilePicUrl: sock.profilePictureUrl,
-						upload: async(readStream: Readable, opts: WAMediaUploadFunctionOpts) => {
-							const up = await waUploadToServer(readStream, { ...opts, newsletter: isJidNewsletter(jid) })
-							mediaHandle = up.handle
-							return up
-						},
+						upload: waUploadToServer,
 						mediaCache: config.mediaCache,
 						options: config.options,
 						messageId: generateMessageIDV2(sock.user?.id),
@@ -877,14 +811,9 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 						additionalAttributes.edit = '7'
 					}
 				} else if(isEditMsg) {
-					additionalAttributes.edit = isJidNewsletter(jid) ? '3' : '1'
-				// required for pin message
+					additionalAttributes.edit = '1'
 				} else if(isPinMsg) {
 					additionalAttributes.edit = '2'
-				// required for keep message
-				} else if(isKeepMsg) {
-					additionalAttributes.edit = '6'
-				// required for polling message
 				} else if(isPollMessage) {
 					additionalNodes.push({
 						tag: 'meta',
@@ -898,7 +827,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					console.warn('cachedGroupMetadata in sendMessage are deprecated, now cachedGroupMetadata is part of the socket config.')
 				}
 
-				await relayMessage(jid, fullMsg.message!, { messageId: fullMsg.key.id!, useCachedGroupMetadata: options.useCachedGroupMetadata, additionalAttributes, additionalNodes: isAiMsg ? additionalNodes : options.additionalNodes, statusJidList: options.statusJidList })
+				await relayMessage(jid, fullMsg.message!, { messageId: fullMsg.key.id!, useCachedGroupMetadata: options.useCachedGroupMetadata, additionalAttributes, statusJidList: options.statusJidList, additionalNodes })
 				if(config.emitOwnEvents) {
 					process.nextTick(() => {
 						processingMutex.mutex(() => (
