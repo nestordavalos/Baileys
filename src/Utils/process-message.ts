@@ -1,5 +1,4 @@
 import { AxiosRequestConfig } from 'axios'
-import type { Logger } from 'pino'
 import { proto } from '../../WAProto'
 import { AuthenticationCreds, BaileysEventEmitter, CacheStore, Chat, GroupMetadata, ParticipantAction, RequestJoinAction, RequestJoinMethod, SignalKeyStoreWithTransaction, SocketConfig, WAMessageStubType } from '../Types'
 import { getContentType, normalizeMessageContent } from '../Utils/messages'
@@ -7,6 +6,7 @@ import { areJidsSameUser, isJidBroadcast, isJidStatusBroadcast, jidNormalizedUse
 import { aesDecryptGCM, hmacSign } from './crypto'
 import { getKeyAuthor, toNumber } from './generics'
 import { downloadAndProcessHistorySyncNotification } from './history'
+import { ILogger } from './logger'
 
 type ProcessMessageContext = {
 	shouldProcessHistoryMsg: boolean
@@ -15,7 +15,7 @@ type ProcessMessageContext = {
 	keyStore: SignalKeyStoreWithTransaction
 	ev: BaileysEventEmitter
 	getMessage: SocketConfig['getMessage']
-	logger?: Logger
+	logger?: ILogger
 	options: AxiosRequestConfig<{}>
 }
 
@@ -169,7 +169,7 @@ const processMessage = async(
 	const isRealMsg = isRealMessage(message, meId)
 
 	if(isRealMsg) {
-		// chat.messages = [{ message }]
+		chat.messages = [{ message }]
 		chat.conversationTimestamp = toNumber(message.messageTimestamp)
 		// only increment unread count if not CIPHERTEXT and from another person
 		if(shouldIncrementChatUnread(message)) {
@@ -276,30 +276,28 @@ const processMessage = async(
 				ephemeralExpiration: protocolMsg.ephemeralExpiration || null
 			})
 			break
-		case proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE: {
-			const response = protocolMsg.peerDataOperationRequestResponseMessage;
+		case proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE:
+			const response = protocolMsg.peerDataOperationRequestResponseMessage!
 			if(response) {
-				placeholderResendCache?.del(response.stanzaId ?? '');
+				placeholderResendCache?.del(response.stanzaId!)
 				// TODO: IMPLEMENT HISTORY SYNC ETC (sticker uploads etc.).
-				const { peerDataOperationResult } = response;
-				for(const result of peerDataOperationResult ?? []) {
-					const { placeholderMessageResendResponse: retryResponse } = result;
+				const { peerDataOperationResult } = response
+				for(const result of peerDataOperationResult!) {
+					const { placeholderMessageResendResponse: retryResponse } = result
 					//eslint-disable-next-line max-depth
 					if(retryResponse) {
-						const webMessageInfo = proto.WebMessageInfo.decode(retryResponse.webMessageInfoBytes ?? new Uint8Array());
+						const webMessageInfo = proto.WebMessageInfo.decode(retryResponse.webMessageInfoBytes!)
 						// wait till another upsert event is available, don't want it to be part of the PDO response message
 						setTimeout(() => {
 							ev.emit('messages.upsert', {
 								messages: [webMessageInfo],
 								type: 'notify',
-								requestId: response.stanzaId ?? ''
-							});
-						}, 500);
+								requestId: response.stanzaId!
+							})
+						}, 500)
 					}
 				}
 			}
-			break;
-		}
 
 		case proto.Message.ProtocolMessage.Type.MESSAGE_EDIT:
 			ev.emit(
