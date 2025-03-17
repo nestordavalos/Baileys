@@ -56,23 +56,24 @@ const encodeBinaryNodeInner = (
         pushBytes(bytes)
     }
 
-    const writeJid = ({ domainType, device, user, server }: FullJid) => {
-        if (!user || !server) {
-            console.error("❌ JID inválido:", { user, server })
-            return
-        }
-
-        if(typeof device !== 'undefined') {
-            pushByte(TAGS.AD_JID)
-            pushByte(domainType || 0)
-            pushByte(device || 0)
-            writeString(user)
-        } else {
-            pushByte(TAGS.JID_PAIR)
-                writeString(user.length ? user : TAGS.LIST_EMPTY.toString())
-                writeString(server)
-        }
-    }
+	const writeJid = ({ domainType, device, user, server }: FullJid) => {
+		if (!user || user.trim() === '') {
+			console.error("❌ JID inválido detectado. Saltando procesamiento.", { user, server });
+			return; // Evita procesar JIDs inválidos
+		}
+	
+		if(typeof device !== 'undefined') {
+			pushByte(TAGS.AD_JID)
+			pushByte(domainType || 0)
+			pushByte(device || 0)
+			writeString(user)
+		} else {
+			pushByte(TAGS.JID_PAIR)
+			writeString(user)
+			writeString(server)
+		}
+	}
+	
 
     const writeString = (str: string) => {
         if (typeof str !== 'string') {
