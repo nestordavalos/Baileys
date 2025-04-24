@@ -1,6 +1,6 @@
 import { promisify } from 'util'
 import { inflate } from 'zlib'
-import logger from '../Utils/logger'
+// import logger from '../Utils/logger'
 import * as constants from './constants'
 import { jidEncode } from './jid-utils'
 import type { BinaryNode, BinaryNodeCodingOptions } from './types'
@@ -154,11 +154,11 @@ export const decodeDecompressedBinaryNode = (
 		const device = readByte()
 		const user = readString(readByte())
 
-		if((domainType & 1) !== 0 || (domainType & 0x80) === 0) {
-		  if(![0, 1].includes(domainType)) {
-				logger.warn('Possibly invalid domainType:', domainType, user, device)
-		  }
-		}
+		// if((domainType & 1) !== 0 || (domainType & 0x80) === 0) {
+		//   if(![0, 1].includes(domainType)) {
+		// 		logger.warn('Possibly invalid domainType:', domainType, user, device)
+		//   }
+		// }
 
 		return jidEncode(
 		  user,
