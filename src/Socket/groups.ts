@@ -358,7 +358,7 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 		participants: getBinaryNodeChildren(group, 'participant').map(
 			({ attrs }) => {
 				return {
-					id: group.attrs.addressing_mode == 'lid' ? attrs.phone_number : attrs.jid,
+					id: attrs.jid,
 					admin: (attrs.type || null) as GroupParticipant['admin'],
 				}
 			}

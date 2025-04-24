@@ -187,7 +187,7 @@ export const makeSocket = (config: SocketConfig) => {
 		let onRecv: (json) => void
 		let onErr: (err) => void
 		try {
-			const result = await promiseTimeout<T>(timeoutMs,
+			return await promiseTimeout<T>(timeoutMs,
 				(resolve, reject) => {
 					onRecv = resolve
 					onErr = err => {
@@ -199,8 +199,6 @@ export const makeSocket = (config: SocketConfig) => {
 					ws.off('error', onErr)
 				},
 			)
-
-			return result as any
 		} finally {
 			ws.off(`TAG:${msgId}`, onRecv!)
 			ws.off('close', onErr!) // if the socket closes, you'll never receive the message
@@ -215,12 +213,11 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 
 		const msgId = node.attrs.id
+		const wait = waitForMessage(msgId, timeoutMs)
 
-		const [result] = await Promise.all([
-			waitForMessage(msgId, timeoutMs),
-			sendNode(node)
-		])
+		await sendNode(node)
 
+		const result = await (wait as Promise<BinaryNode>)
 		if('tag' in result) {
 			assertNodeErrorFree(result)
 		}
