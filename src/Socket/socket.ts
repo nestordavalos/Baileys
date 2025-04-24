@@ -118,14 +118,12 @@ export const makeSocket = (config: SocketConfig) => {
 		const bytes = noise.encodeFrame(data)
 		await promiseTimeout<void>(
 			connectTimeoutMs,
-			async(resolve) => {
+			async(resolve, reject) => {
 				try {
 					await sendPromise.call(ws, bytes)
 					resolve()
 				} catch(error) {
-					// reject(error)
-					logger.error({ error }, '[Baileys] error in sendRawMessage')
-					resolve(undefined as void)
+					reject(error)
 				}
 			}
 		)
@@ -189,16 +187,11 @@ export const makeSocket = (config: SocketConfig) => {
 		let onRecv: (json) => void
 		let onErr: (err) => void
 		try {
-			return await promiseTimeout<T>(timeoutMs,
+			const result = await promiseTimeout<T>(timeoutMs,
 				(resolve, reject) => {
 					onRecv = resolve
 					onErr = err => {
-						if(err.message === 'Timed Out') {
-							logger.error({ err }, '[Baileys] error in waitForMessage')
-							resolve(undefined as T)
-						} else {
-							reject(err || new Boom('Connection Closed', { statusCode: DisconnectReason.connectionClosed }))
-						}
+						reject(err || new Boom('Connection Closed', { statusCode: DisconnectReason.connectionClosed }))
 					}
 
 					ws.on(`TAG:${msgId}`, onRecv)
@@ -206,6 +199,8 @@ export const makeSocket = (config: SocketConfig) => {
 					ws.off('error', onErr)
 				},
 			)
+
+			return result as any
 		} finally {
 			ws.off(`TAG:${msgId}`, onRecv!)
 			ws.off('close', onErr!) // if the socket closes, you'll never receive the message
@@ -220,11 +215,12 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 
 		const msgId = node.attrs.id
-		const wait = waitForMessage(msgId, timeoutMs)
 
-		await sendNode(node)
+		const [result] = await Promise.all([
+			waitForMessage(msgId, timeoutMs),
+			sendNode(node)
+		])
 
-		const result = await (wait as Promise<BinaryNode>)
 		if('tag' in result) {
 			assertNodeErrorFree(result)
 		}
@@ -275,32 +271,20 @@ export const makeSocket = (config: SocketConfig) => {
 	}
 
 	const getAvailablePreKeysOnServer = async() => {
-		try {
-			const result = await query({
-				tag: 'iq',
-				attrs: {
-					id: generateMessageTag(),
-					xmlns: 'encrypt',
-					type: 'get',
-					to: S_WHATSAPP_NET
-				},
-				content: [
-					{ tag: 'count', attrs: {} }
-				]
-			})
-
-			const countChild = getBinaryNodeChild(result, 'count')
-
-			if(!countChild?.attrs?.value) {
-				logger.warn('[Baileys] Invalid or missing count response from getAvailablePreKeysOnServer')
-				return
-			}
-
-			return +countChild.attrs.value
-		} catch(err) {
-			logger.error('[Baileys] Failed to get available pre-keys:', err)
-			return
-		}
+		const result = await query({
+			tag: 'iq',
+			attrs: {
+				id: generateMessageTag(),
+				xmlns: 'encrypt',
+				type: 'get',
+				to: S_WHATSAPP_NET
+			},
+			content: [
+				{ tag: 'count', attrs: {} }
+			]
+		})
+		const countChild = getBinaryNodeChild(result, 'count')
+		return +countChild!.attrs.value
 	}
 
 	/** generates and uploads a set of pre-keys to the server */
@@ -321,7 +305,7 @@ export const makeSocket = (config: SocketConfig) => {
 	const uploadPreKeysToServerIfRequired = async() => {
 		const preKeyCount = await getAvailablePreKeysOnServer()
 		logger.info(`${preKeyCount} pre-keys found on server`)
-		if(preKeyCount && preKeyCount <= MIN_PREKEY_COUNT) {
+		if(preKeyCount <= MIN_PREKEY_COUNT) {
 			await uploadPreKeys()
 		}
 	}
@@ -462,19 +446,19 @@ export const makeSocket = (config: SocketConfig) => {
 		}, keepAliveIntervalMs)
 	)
 	/** i have no idea why this exists. pls enlighten me */
-	// const sendPassiveIq = (tag: 'passive' | 'active') => (
-	// 	query({
-	// 		tag: 'iq',
-	// 		attrs: {
-	// 			to: S_WHATSAPP_NET,
-	// 			xmlns: 'passive',
-	// 			type: 'set',
-	// 		},
-	// 		content: [
-	// 			{ tag, attrs: {} }
-	// 		]
-	// 	})
-	// )
+	const sendPassiveIq = (tag: 'passive' | 'active') => (
+		query({
+			tag: 'iq',
+			attrs: {
+				to: S_WHATSAPP_NET,
+				xmlns: 'passive',
+				type: 'set',
+			},
+			content: [
+				{ tag, attrs: {} }
+			]
+		})
+	)
 
 	/** logout & invalidate connection */
 	const logout = async(msg?: string) => {
@@ -665,7 +649,7 @@ export const makeSocket = (config: SocketConfig) => {
 	// login complete
 	ws.on('CB:success', async(node: BinaryNode) => {
 		await uploadPreKeysToServerIfRequired()
-		// await sendPassiveIq('active')
+		await sendPassiveIq('active')
 
 		logger.info('opened connection to WA')
 		clearTimeout(qrTimer) // will never happen in all likelyhood -- but just in case WA sends success on first try
