@@ -219,7 +219,7 @@ export const makeSocket = (config: SocketConfig) => {
 			waitForMessage(msgId, timeoutMs),
 			sendNode(node)
 		])
-		
+
 		if('tag' in result) {
 			assertNodeErrorFree(result)
 		}

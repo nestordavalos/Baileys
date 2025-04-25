@@ -898,14 +898,15 @@ export const downloadMediaMessage = async<Type extends 'buffer' | 'stream'>(
 			}
 			mediaType = 'thumbnail-link'
 		} else {
-			if (!('directPath' in media) || typeof media.directPath !== 'string') {
-				throw new Boom(`"${contentType}" message does not have a directPath`, { statusCode: 400, data: media });
+			if(!('directPath' in media) || typeof media.directPath !== 'string') {
+				throw new Boom(`"${contentType}" message does not have a directPath`, { statusCode: 400, data: media })
 			}
+
 			download = {
 				mediaKey: media.mediaKey,
 				directPath: media.directPath,
 				url: 'https://mmg.whatsapp.net' + media.directPath
-			};
+			}
 		}
 
 		const stream = await downloadContentFromMessage(download, mediaType, options)
