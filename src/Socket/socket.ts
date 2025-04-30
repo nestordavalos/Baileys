@@ -200,7 +200,8 @@ export const makeSocket = (config: SocketConfig) => {
 				},
 			)
 
-			return result as any
+			// return result as any
+			return result as BinaryNode
 		} finally {
 			ws.off(`TAG:${msgId}`, onRecv!)
 			ws.off('close', onErr!) // if the socket closes, you'll never receive the message
