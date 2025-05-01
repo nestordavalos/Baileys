@@ -409,7 +409,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 						if(!isStatus) {
 							additionalAttributes = {
 								//...additionalAttributes,
-								addressingMode: groupData?.addressingMode || 'pn'
+								addressing_mode: groupData?.addressingMode || 'pn'
 							}
 						}
 
