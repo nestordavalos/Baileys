@@ -1,6 +1,6 @@
 import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
-import { proto } from '../../WAProto'
+import { proto } from '../../WAProto/index.js'
 import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
 import type {
 	AnyMessageContent,
@@ -75,7 +75,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 	const userDevicesCache =
 		config.userDevicesCache ||
-		new NodeCache({
+		new NodeCache<JidWithDevice[]>({
 			stdTTL: DEFAULT_CACHE_TTLS.USER_DEVICES, // 5 minutes
 			useClones: false
 		})
@@ -237,7 +237,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			}
 
 			for (const key in deviceMap) {
-				userDevicesCache.set(key, deviceMap[key])
+				userDevicesCache.set(key, deviceMap[key]!)
 			}
 		}
 
