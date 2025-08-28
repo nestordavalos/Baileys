@@ -940,6 +940,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		let status: WACallUpdateType
 		const { attrs } = node
 		const [infoChild] = getAllBinaryNodeChildren(node)
+
 		if (!infoChild) {
 			throw new Boom('Missing call info in call node')
 		}
