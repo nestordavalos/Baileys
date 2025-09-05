@@ -12,14 +12,24 @@ export type WAVersion = [number, number, number]
 export type WABrowserDescription = [string, string, string]
 
 export type CacheStore = {
-	/** get a cached key and change the stats */
-	get<T>(key: string): T | undefined
-	/** set a key in the cache */
-	set<T>(key: string, value: T): void
-	/** delete a key from the cache */
-	del(key: string): void
-	/** flush all data */
-	flushAll(): void
+       /** get a cached key and change the stats */
+       get<T>(key: string): Promise<T> | T | undefined
+       /** set a key in the cache */
+       set<T>(key: string, value: T): Promise<void> | void | number | boolean
+       /** delete a key from the cache */
+       del(key: string): void | Promise<void> | number | boolean
+       /** flush all data */
+       flushAll(): void | Promise<void>
+}
+
+export type PossiblyExtendedCacheStore = CacheStore & {
+       mget?: <T>(keys: string[]) => Promise<Record<string, T | undefined>>
+       mset?: <T>(entries: { key: string; value: T }[]) =>
+               | Promise<void>
+               | void
+               | number
+               | boolean
+       mdel?: (keys: string[]) => void | Promise<void> | number | boolean
 }
 
 export type PatchedMessageWithRecipientJID = proto.IMessage & { recipientJid?: string }
@@ -77,8 +87,8 @@ export type SocketConfig = {
 	 * map to store the retry counts for failed messages;
 	 * used to determine whether to retry a message or not */
 	msgRetryCounterCache?: CacheStore
-	/** provide a cache to store a user's device list */
-	userDevicesCache?: CacheStore
+       /** provide a cache to store a user's device list */
+       userDevicesCache?: PossiblyExtendedCacheStore
 	/** cache to store call offers */
 	callOfferCache?: CacheStore
 	/** cache to track placeholder resends */
