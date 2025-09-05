@@ -146,7 +146,7 @@ export const prepareWAMessageMedia = async (
 	}
 
 	if (cacheableKey) {
-		const mediaBuff = options.mediaCache!.get<Buffer>(cacheableKey)
+               const mediaBuff = await options.mediaCache!.get<Buffer>(cacheableKey)
 		if (mediaBuff) {
 			logger?.debug({ cacheableKey }, 'got media cache hit')
 
@@ -195,8 +195,11 @@ export const prepareWAMessageMedia = async (
 		}
 
 		if (cacheableKey) {
-			logger?.debug({ cacheableKey }, 'set cache')
-			options.mediaCache!.set(cacheableKey, WAProto.Message.encode(obj).finish())
+                       logger?.debug({ cacheableKey }, 'set cache')
+                       await options.mediaCache!.set(
+                               cacheableKey,
+                               WAProto.Message.encode(obj).finish()
+                       )
 		}
 
 		return obj
@@ -298,8 +301,11 @@ export const prepareWAMessageMedia = async (
 	}
 
 	if (cacheableKey) {
-		logger?.debug({ cacheableKey }, 'set cache')
-		options.mediaCache!.set(cacheableKey, WAProto.Message.encode(obj).finish())
+               logger?.debug({ cacheableKey }, 'set cache')
+               await options.mediaCache!.set(
+                       cacheableKey,
+                       WAProto.Message.encode(obj).finish()
+               )
 	}
 
 	return obj
