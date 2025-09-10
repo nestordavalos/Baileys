@@ -1,4 +1,4 @@
-import type { ProtoType } from '../WAProto';
+import type { ProtoType } from '../WAProto'
 import type { Contact } from './Contact'
 import type { MinimalMessage } from './Message'
 

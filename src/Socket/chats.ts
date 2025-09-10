@@ -693,12 +693,12 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			},
 			content: tcToken
 				? [
-					{
-						tag: 'tctoken',
-						attrs: {},
-						content: tcToken
-					}
-				]
+						{
+							tag: 'tctoken',
+							attrs: {},
+							content: tcToken
+						}
+					]
 				: undefined
 		})
 

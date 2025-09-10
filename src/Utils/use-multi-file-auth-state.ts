@@ -78,10 +78,10 @@ export const useMultiFileAuthState = async (
 					release()
 				}
 			})
-		} catch { }
+		} catch {}
 	}
 
-	const folderInfo = await stat(folder).catch(() => { })
+	const folderInfo = await stat(folder).catch(() => {})
 	if (folderInfo) {
 		if (!folderInfo.isDirectory()) {
 			throw new Error(

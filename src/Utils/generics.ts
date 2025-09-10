@@ -41,7 +41,8 @@ export const Browsers: BrowsersMap = {
 }
 
 export const getPlatformId = (browser: string) => {
-	const platformType = proto.DeviceProps.PlatformType[browser.toUpperCase() as keyof typeof proto.DeviceProps.PlatformType]
+	const platformType =
+		proto.DeviceProps.PlatformType[browser.toUpperCase() as keyof typeof proto.DeviceProps.PlatformType]
 	return platformType ? platformType.toString() : '1' //chrome
 }
 
@@ -87,7 +88,8 @@ export const unpadRandomMax16 = (e: Uint8Array | Buffer) => {
 	return new Uint8Array(t.buffer, t.byteOffset, t.length - r)
 }
 
-export const encodeWAMessage = (message: ProtoType.IMessage) => writeRandomPadMax16(proto.Message.encode(message).finish())
+export const encodeWAMessage = (message: ProtoType.IMessage) =>
+	writeRandomPadMax16(proto.Message.encode(message).finish())
 
 export const generateRegistrationId = (): number => {
 	return Uint16Array.from(randomBytes(2))[0]! & 16383

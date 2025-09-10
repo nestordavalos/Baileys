@@ -1,6 +1,5 @@
-import type { ProtoType } from "../WAProto";
+import type { ProtoType } from '../WAProto'
 
- 
 export type DayOfWeekBussines = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
 
 export type HoursDay =

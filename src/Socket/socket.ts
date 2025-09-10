@@ -147,9 +147,9 @@ export const makeSocket = (config: SocketConfig) => {
 				onErr = err => {
 					reject(
 						err ||
-						new Boom('Connection Closed', {
-							statusCode: DisconnectReason.connectionClosed
-						})
+							new Boom('Connection Closed', {
+								statusCode: DisconnectReason.connectionClosed
+							})
 					)
 				}
 
@@ -553,7 +553,7 @@ export const makeSocket = (config: SocketConfig) => {
 		if (!ws.isClosed && !ws.isClosing) {
 			try {
 				ws.close()
-			} catch { }
+			} catch {}
 		}
 
 		ev.emit('connection.update', {
@@ -591,36 +591,36 @@ export const makeSocket = (config: SocketConfig) => {
 	}
 
 	const startKeepAliveRequest = () =>
-	(keepAliveReq = setInterval(() => {
-		if (!lastDateRecv) {
-			lastDateRecv = new Date()
-		}
+		(keepAliveReq = setInterval(() => {
+			if (!lastDateRecv) {
+				lastDateRecv = new Date()
+			}
 
-		const diff = Date.now() - lastDateRecv.getTime()
-		/*
+			const diff = Date.now() - lastDateRecv.getTime()
+			/*
 			check if it's been a suspicious amount of time since the server responded with our last seen
 			it could be that the network is down
 		*/
-		if (diff > keepAliveIntervalMs + 5000) {
-			end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }))
-		} else if (ws.isOpen) {
-			// if its all good, send a keep alive request
-			query({
-				tag: 'iq',
-				attrs: {
-					id: generateMessageTag(),
-					to: S_WHATSAPP_NET,
-					type: 'get',
-					xmlns: 'w:p'
-				},
-				content: [{ tag: 'ping', attrs: {} }]
-			}).catch(err => {
-				logger.error({ trace: err.stack }, 'error in sending keep alive')
-			})
-		} else {
-			logger.warn('keep alive called when WS not open')
-		}
-	}, keepAliveIntervalMs))
+			if (diff > keepAliveIntervalMs + 5000) {
+				end(new Boom('Connection was lost', { statusCode: DisconnectReason.connectionLost }))
+			} else if (ws.isOpen) {
+				// if its all good, send a keep alive request
+				query({
+					tag: 'iq',
+					attrs: {
+						id: generateMessageTag(),
+						to: S_WHATSAPP_NET,
+						type: 'get',
+						xmlns: 'w:p'
+					},
+					content: [{ tag: 'ping', attrs: {} }]
+				}).catch(err => {
+					logger.error({ trace: err.stack }, 'error in sending keep alive')
+				})
+			} else {
+				logger.warn('keep alive called when WS not open')
+			}
+		}, keepAliveIntervalMs))
 	/** i have no idea why this exists. pls enlighten me */
 	const sendPassiveIq = (tag: 'passive' | 'active') =>
 		query({

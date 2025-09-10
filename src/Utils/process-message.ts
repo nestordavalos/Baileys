@@ -50,7 +50,6 @@ export const cleanMessage = (message: ProtoType.IWebMessageInfo, meId: string) =
 		message.key.participant = message.key.participant ? jidNormalizedUser(message.key.participant) : undefined
 	}
 
-
 	const content = normalizeMessageContent(message.message)
 	// if the message has a reaction, ensure fromMe & remoteJid are from our perspective
 	if (content?.reactionMessage) {
@@ -70,8 +69,8 @@ export const cleanMessage = (message: ProtoType.IWebMessageInfo, meId: string) =
 			msgKey.fromMe = !msgKey.fromMe
 				? areJidsSameUser(msgKey.participant || msgKey.remoteJid!, meId)
 				: // if the message being reacted to, was from them
-				// fromMe automatically becomes false
-				false
+					// fromMe automatically becomes false
+					false
 			// set the remoteJid to being the same as the chat the message came from
 			msgKey.remoteJid = message.key?.remoteJid
 			// set participant of the message

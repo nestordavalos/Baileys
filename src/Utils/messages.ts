@@ -563,7 +563,7 @@ export const generateWAMessageContent = async (
 	} else {
 		m = await prepareWAMessageMedia(message as AnyMediaMessageContent, options)
 	}
-	
+
 	if ('buttons' in message && !!message.buttons) {
 		const buttonsMessage: ProtoType.Message.IButtonsMessage = {
 			buttons: message?.buttons?.map(b => ({ ...b, type: proto.Message.ButtonsMessage.Button.Type.RESPONSE }))

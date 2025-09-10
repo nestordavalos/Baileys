@@ -156,39 +156,39 @@ type RequestPhoneNumber = {
 
 export type AnyMediaMessageContent = (
 	| ({
-		image: WAMediaUpload
-		caption?: string
-		jpegThumbnail?: string
-	} & Mentionable &
-		Contextable &
-		WithDimensions)
+			image: WAMediaUpload
+			caption?: string
+			jpegThumbnail?: string
+	  } & Mentionable &
+			Contextable &
+			WithDimensions)
 	| ({
-		video: WAMediaUpload
-		caption?: string
-		gifPlayback?: boolean
-		jpegThumbnail?: string
-		/** if set to true, will send as a `video note` */
-		ptv?: boolean
-	} & Mentionable &
-		Contextable &
-		WithDimensions)
+			video: WAMediaUpload
+			caption?: string
+			gifPlayback?: boolean
+			jpegThumbnail?: string
+			/** if set to true, will send as a `video note` */
+			ptv?: boolean
+	  } & Mentionable &
+			Contextable &
+			WithDimensions)
 	| {
-		audio: WAMediaUpload
-		/** if set to true, will send as a `voice note` */
-		ptt?: boolean
-		/** optionally tell the duration of the audio */
-		seconds?: number
-	}
+			audio: WAMediaUpload
+			/** if set to true, will send as a `voice note` */
+			ptt?: boolean
+			/** optionally tell the duration of the audio */
+			seconds?: number
+	  }
 	| ({
-		sticker: WAMediaUpload
-		isAnimated?: boolean
-	} & WithDimensions)
+			sticker: WAMediaUpload
+			isAnimated?: boolean
+	  } & WithDimensions)
 	| ({
-		document: WAMediaUpload
-		mimetype: string
-		fileName?: string
-		caption?: string
-	} & Contextable)
+			document: WAMediaUpload
+			mimetype: string
+			fileName?: string
+			caption?: string
+	  } & Contextable)
 ) & { mimetype?: string } & Editable
 
 export type ButtonReplyInfo = {
@@ -211,52 +211,52 @@ export type WASendableProduct = Omit<ProtoType.Message.ProductMessage.IProductSn
 
 export type AnyRegularMessageContent = (
 	| ({
-		text: string
-		linkPreview?: WAUrlInfo | null
-	} & Mentionable &
-		Contextable &
-		Editable)
+			text: string
+			linkPreview?: WAUrlInfo | null
+	  } & Mentionable &
+			Contextable &
+			Editable)
 	| AnyMediaMessageContent
 	| { event: EventMessageOptions }
 	| ({
-		poll: PollMessageOptions
-	} & Mentionable &
-		Contextable &
-		Editable)
+			poll: PollMessageOptions
+	  } & Mentionable &
+			Contextable &
+			Editable)
 	| {
-		contacts: {
-			displayName?: string
-			contacts: ProtoType.Message.IContactMessage[]
-		}
-	}
+			contacts: {
+				displayName?: string
+				contacts: ProtoType.Message.IContactMessage[]
+			}
+	  }
 	| {
-		location: WALocationMessage
-	}
+			location: WALocationMessage
+	  }
 	| { react: ProtoType.Message.IReactionMessage }
 	| {
-		buttonReply: ButtonReplyInfo
-		type: 'template' | 'plain'
-	}
+			buttonReply: ButtonReplyInfo
+			type: 'template' | 'plain'
+	  }
 	| {
-		groupInvite: GroupInviteInfo
-	}
+			groupInvite: GroupInviteInfo
+	  }
 	| {
-		listReply: Omit<ProtoType.Message.IListResponseMessage, 'contextInfo'>
-	}
+			listReply: Omit<ProtoType.Message.IListResponseMessage, 'contextInfo'>
+	  }
 	| {
-		pin: WAMessageKey
-		type: ProtoType.PinInChat.Type
-		/**
-		 * 24 hours, 7 days, 30 days
-		 */
-		time?: 86400 | 604800 | 2592000
-	}
+			pin: WAMessageKey
+			type: ProtoType.PinInChat.Type
+			/**
+			 * 24 hours, 7 days, 30 days
+			 */
+			time?: 86400 | 604800 | 2592000
+	  }
 	| {
-		product: WASendableProduct
-		businessOwnerJid?: string
-		body?: string
-		footer?: string
-	}
+			product: WASendableProduct
+			businessOwnerJid?: string
+			body?: string
+			footer?: string
+	  }
 	| SharePhoneNumber
 	| RequestPhoneNumber
 ) &
@@ -265,22 +265,25 @@ export type AnyRegularMessageContent = (
 export type AnyMessageContent =
 	| AnyRegularMessageContent
 	| {
-		forward: WAMessage
-		force?: boolean
-	}
+			forward: WAMessage
+			force?: boolean
+	  }
 	| {
-		/** Delete your message or anyone's message in a group (admin required) */
-		delete: WAMessageKey
-	}
+			/** Delete your message or anyone's message in a group (admin required) */
+			delete: WAMessageKey
+	  }
 	| {
-		disappearingMessagesInChat: boolean | number
-	} | {
-		interactiveMessage: ProtoType.Message.IInteractiveMessage
-	} | {
-		templateButtons: ProtoType.IHydratedTemplateButton[]
-	} | {
-		buttons: ProtoType.Message.IButtonsMessage[]
-	}
+			disappearingMessagesInChat: boolean | number
+	  }
+	| {
+			interactiveMessage: ProtoType.Message.IInteractiveMessage
+	  }
+	| {
+			templateButtons: ProtoType.IHydratedTemplateButton[]
+	  }
+	| {
+			buttons: ProtoType.Message.IButtonsMessage[]
+	  }
 
 export type GroupMetadataParticipants = Pick<GroupMetadata, 'participants'>
 

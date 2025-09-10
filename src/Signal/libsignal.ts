@@ -1,4 +1,4 @@
-import * as  libsignal from '@raphaelvserafim/libsignal'
+import * as libsignal from '@raphaelvserafim/libsignal'
 import { LRUCache } from 'lru-cache'
 import type { SignalAuthState, SignalKeyStoreWithTransaction } from '../Types'
 import type { SignalRepository } from '../Types/Signal'
@@ -14,10 +14,10 @@ export function makeLibSignalRepository(
 	auth: SignalAuthState,
 	onWhatsAppFunc?: (...jids: string[]) => Promise<
 		| {
-			jid: string
-			exists: boolean
-			lid: string
-		}[]
+				jid: string
+				exists: boolean
+				lid: string
+		  }[]
 		| undefined
 	>
 ): SignalRepository {

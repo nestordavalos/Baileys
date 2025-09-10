@@ -307,7 +307,11 @@ export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequ
 	const collectionNodes = getBinaryNodeChildren(syncNode, 'collection')
 
 	const final = {} as {
-		[T in WAPatchName]: { patches: ProtoType.ISyncdPatch[]; hasMorePatches: boolean; snapshot?: ProtoType.ISyncdSnapshot }
+		[T in WAPatchName]: {
+			patches: ProtoType.ISyncdPatch[]
+			hasMorePatches: boolean
+			snapshot?: ProtoType.ISyncdSnapshot
+		}
 	}
 	await Promise.all(
 		collectionNodes.map(async collectionNode => {
@@ -364,7 +368,10 @@ export const downloadExternalBlob = async (blob: ProtoType.IExternalBlobReferenc
 	return Buffer.concat(bufferArray)
 }
 
-export const downloadExternalPatch = async (blob: ProtoType.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
+export const downloadExternalPatch = async (
+	blob: ProtoType.IExternalBlobReference,
+	options: AxiosRequestConfig<{}>
+) => {
 	const buffer = await downloadExternalBlob(blob, options)
 	const syncData = proto.SyncdMutations.decode(buffer)
 	return syncData
@@ -389,10 +396,10 @@ export const decodeSyncdSnapshot = async (
 		getAppStateSyncKey,
 		areMutationsRequired
 			? mutation => {
-				const index = mutation.syncAction.index?.toString()
-				mutationMap[index!] = mutation
-			}
-			: () => { },
+					const index = mutation.syncAction.index?.toString()
+					mutationMap[index!] = mutation
+				}
+			: () => {},
 		validateMacs
 	)
 	newState.hash = hash
@@ -456,10 +463,10 @@ export const decodePatches = async (
 			getAppStateSyncKey,
 			shouldMutate
 				? mutation => {
-					const index = mutation.syncAction.index?.toString()
-					mutationMap[index!] = mutation
-				}
-				: () => { },
+						const index = mutation.syncAction.index?.toString()
+						mutationMap[index!] = mutation
+					}
+				: () => {},
 			true
 		)
 
@@ -497,24 +504,24 @@ export const chatModificationToAppPatch = (mod: ChatModification, jid: string) =
 				lastMessageTimestamp: lastMsg?.messageTimestamp,
 				messages: lastMessages?.length
 					? lastMessages.map(m => {
-						if (!m.key?.id || !m.key?.remoteJid) {
-							throw new Boom('Incomplete key', { statusCode: 400, data: m })
-						}
+							if (!m.key?.id || !m.key?.remoteJid) {
+								throw new Boom('Incomplete key', { statusCode: 400, data: m })
+							}
 
-						if (isJidGroup(m.key.remoteJid) && !m.key.fromMe && !m.key.participant) {
-							throw new Boom('Expected not from me message to have participant', { statusCode: 400, data: m })
-						}
+							if (isJidGroup(m.key.remoteJid) && !m.key.fromMe && !m.key.participant) {
+								throw new Boom('Expected not from me message to have participant', { statusCode: 400, data: m })
+							}
 
-						if (!m.messageTimestamp || !toNumber(m.messageTimestamp)) {
-							throw new Boom('Missing timestamp in last message list', { statusCode: 400, data: m })
-						}
+							if (!m.messageTimestamp || !toNumber(m.messageTimestamp)) {
+								throw new Boom('Missing timestamp in last message list', { statusCode: 400, data: m })
+							}
 
-						if (m.key.participant) {
-							m.key.participant = jidNormalizedUser(m.key.participant)
-						}
+							if (m.key.participant) {
+								m.key.participant = jidNormalizedUser(m.key.participant)
+							}
 
-						return m
-					})
+							return m
+						})
 					: undefined
 			}
 		} else {
@@ -894,16 +901,16 @@ export const processSyncAction = (
 			association:
 				type === LabelAssociationType.Chat
 					? ({
-						type: LabelAssociationType.Chat,
-						chatId: syncAction.index[2],
-						labelId: syncAction.index[1]
-					} as ChatLabelAssociation)
+							type: LabelAssociationType.Chat,
+							chatId: syncAction.index[2],
+							labelId: syncAction.index[1]
+						} as ChatLabelAssociation)
 					: ({
-						type: LabelAssociationType.Message,
-						chatId: syncAction.index[2],
-						messageId: syncAction.index[3],
-						labelId: syncAction.index[1]
-					} as MessageLabelAssociation)
+							type: LabelAssociationType.Message,
+							chatId: syncAction.index[2],
+							messageId: syncAction.index[3],
+							labelId: syncAction.index[1]
+						} as MessageLabelAssociation)
 		})
 	} else {
 		logger?.debug({ syncAction, id }, 'unprocessable update')
@@ -915,11 +922,11 @@ export const processSyncAction = (
 	): ChatUpdate['conditional'] {
 		return isInitialSync
 			? data => {
-				const chat = data.historySets.chats[id] || data.chatUpserts[id]
-				if (chat) {
-					return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true
+					const chat = data.historySets.chats[id] || data.chatUpserts[id]
+					if (chat) {
+						return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true
+					}
 				}
-			}
 			: undefined
 	}
 

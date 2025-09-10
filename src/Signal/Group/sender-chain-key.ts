@@ -1,4 +1,4 @@
-import * as  libsignal from '@raphaelvserafim/libsignal'
+import * as libsignal from '@raphaelvserafim/libsignal'
 import { SenderMessageKey } from './sender-message-key'
 
 export class SenderChainKey {

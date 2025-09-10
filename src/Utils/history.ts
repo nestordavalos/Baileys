@@ -10,7 +10,10 @@ import { proto, type ProtoType } from '../WAProto'
 
 const inflatePromise = promisify(inflate)
 
-export const downloadHistory = async (msg: ProtoType.Message.IHistorySyncNotification, options: AxiosRequestConfig<{}>) => {
+export const downloadHistory = async (
+	msg: ProtoType.Message.IHistorySyncNotification,
+	options: AxiosRequestConfig<{}>
+) => {
 	const stream = await downloadContentFromMessage(msg, 'md-msg-hist', { options })
 	const bufferArray: Buffer[] = []
 	for await (const chunk of stream) {

@@ -1,8 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, subtle } from 'crypto'
-import * as  libsignal from '@raphaelvserafim/libsignal'
+import * as libsignal from '@raphaelvserafim/libsignal'
 import { KEY_BUNDLE_TYPE } from '../Defaults'
 import type { KeyPair } from '../Types'
-
 
 /** prefix version byte to the pub keys, required for some curve crypto functions */
 export const generateSignalPubKey = (pubKey: Uint8Array | Buffer) =>

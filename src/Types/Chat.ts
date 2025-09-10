@@ -86,32 +86,32 @@ export type LastMessageList = MinimalMessage[] | ProtoType.SyncActionValue.ISync
 
 export type ChatModification =
 	| {
-		archive: boolean
-		lastMessages: LastMessageList
-	}
+			archive: boolean
+			lastMessages: LastMessageList
+	  }
 	| { pushNameSetting: string }
 	| { pin: boolean }
 	| {
-		/** mute for duration, or provide timestamp of mute to remove*/
-		mute: number | null
-	}
+			/** mute for duration, or provide timestamp of mute to remove*/
+			mute: number | null
+	  }
 	| {
-		clear: boolean
-		lastMessages: LastMessageList
-	}
+			clear: boolean
+			lastMessages: LastMessageList
+	  }
 	| {
-		deleteForMe: { deleteMedia: boolean; key: WAMessageKey; timestamp: number }
-	}
+			deleteForMe: { deleteMedia: boolean; key: WAMessageKey; timestamp: number }
+	  }
 	| {
-		star: {
-			messages: { id: string; fromMe?: boolean }[]
-			star: boolean
-		}
-	}
+			star: {
+				messages: { id: string; fromMe?: boolean }[]
+				star: boolean
+			}
+	  }
 	| {
-		markRead: boolean
-		lastMessages: LastMessageList
-	}
+			markRead: boolean
+			lastMessages: LastMessageList
+	  }
 	| { delete: true; lastMessages: LastMessageList }
 	| { contact: ProtoType.SyncActionValue.IContactAction | null }
 	| { disableLinkPreviews: ProtoType.SyncActionValue.IPrivacySettingDisableLinkPreviewsAction }

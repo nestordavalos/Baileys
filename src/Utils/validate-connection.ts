@@ -195,7 +195,10 @@ export const configureSuccessfulPairing = (
 	}
 }
 
-export const encodeSignedDeviceIdentity = (account: ProtoType.IADVSignedDeviceIdentity, includeSignatureKey: boolean) => {
+export const encodeSignedDeviceIdentity = (
+	account: ProtoType.IADVSignedDeviceIdentity,
+	includeSignatureKey: boolean
+) => {
 	account = { ...account }
 	// set to null if we are not to include the signature key
 	// or if we are including the signature key but it is empty

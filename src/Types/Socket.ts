@@ -141,10 +141,10 @@ export type SocketConfig = {
 		auth: SignalAuthState,
 		onWhatsAppFunc?: (...jids: string[]) => Promise<
 			| {
-				jid: string
-				exists: boolean
-				lid: string
-			}[]
+					jid: string
+					exists: boolean
+					lid: string
+			  }[]
 			| undefined
 		>
 	) => SignalRepository
