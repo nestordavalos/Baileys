@@ -70,7 +70,7 @@
     "jiti": "^2.4.2",
     "json": "^11.0.0",
     "link-preview-js": "^3.0.0",
-    "lru-cache": "^11.1.0",
+    "lru-cache": "^11.2.1",
     "open": "^8.4.2",
     "pino-pretty": "^13.1.1",
     "prettier": "^3.5.3",
