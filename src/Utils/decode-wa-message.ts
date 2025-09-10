@@ -1,20 +1,47 @@
 import { Boom } from '@hapi/boom'
-import { proto } from '../../WAProto/index.js'
 import type { SignalRepository, WAMessage, WAMessageKey } from '../Types'
 import {
 	areJidsSameUser,
 	type BinaryNode,
 	isJidBroadcast,
 	isJidGroup,
-	isJidMetaIa,
+	isJidMetaAI,
 	isJidNewsletter,
 	isJidStatusBroadcast,
-	isJidUser,
 	isLidUser,
-	jidNormalizedUser
+	isPnUser,
+	transferDevice
 } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { unpadRandomMax16 } from './generics'
 import type { ILogger } from './logger'
+
+const getDecryptionJid = async (sender: string, repository: SignalRepository): Promise<string> => {
+	if (!sender.includes('@s.whatsapp.net')) {
+		return sender
+	}
+
+	return (await repository.getLIDMappingStore().getLIDForPN(sender))!
+}
+
+const storeMappingFromEnvelope = async (
+	stanza: BinaryNode,
+	sender: string,
+	decryptionJid: string,
+	repository: SignalRepository,
+	logger: ILogger
+): Promise<void> => {
+	const { senderAlt } = extractAddressingContext(stanza)
+
+	if (senderAlt && isLidUser(senderAlt) && isPnUser(sender) && decryptionJid === sender) {
+		try {
+			await repository.storeLIDPNMapping(senderAlt, sender)
+			logger.debug({ sender, senderAlt }, 'Stored LID mapping from envelope')
+		} catch (error) {
+			logger.warn({ sender, senderAlt, error }, 'Failed to store LID mapping')
+		}
+	}
+}
 
 export const NO_MESSAGE_FOUND_ERROR_TEXT = 'Message absent from node'
 export const MISSING_KEYS_ERROR_TEXT = 'Key used already or never filled'
@@ -51,6 +78,37 @@ type MessageType =
 	| 'other_status'
 	| 'newsletter'
 
+export const extractAddressingContext = (stanza: BinaryNode) => {
+	const addressingMode = stanza.attrs.addressing_mode || 'pn'
+	let senderAlt: string | undefined
+	let recipientAlt: string | undefined
+
+	const sender = stanza.attrs.participant || stanza.attrs.from
+
+	if (addressingMode === 'lid') {
+		// Message is LID-addressed: sender is LID, extract corresponding PN
+		// without device data
+		senderAlt = stanza.attrs.participant_pn || stanza.attrs.sender_pn || stanza.attrs.peer_recipient_pn
+		recipientAlt = stanza.attrs.recipient_pn
+		// with device data
+		if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
+	} else {
+		// Message is PN-addressed: sender is PN, extract corresponding LID
+		// without device data
+		senderAlt = stanza.attrs.participant_lid || stanza.attrs.sender_lid || stanza.attrs.peer_recipient_lid
+		recipientAlt = stanza.attrs.recipient_lid
+
+		//with device data
+		if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
+	}
+
+	return {
+		addressingMode,
+		senderAlt,
+		recipientAlt
+	}
+}
+
 /**
  * Decode the received node as a message.
  * @note this will only parse the message, not decrypt it
@@ -65,11 +123,13 @@ export function decodeMessageNode(stanza: BinaryNode, meId: string, meLid: strin
 	const participant: string | undefined = stanza.attrs.participant
 	const recipient: string | undefined = stanza.attrs.recipient
 
+	const addressingContext = extractAddressingContext(stanza)
+
 	const isMe = (jid: string) => areJidsSameUser(jid, meId)
 	const isMeLid = (jid: string) => areJidsSameUser(jid, meLid)
 
-	if (isJidUser(from) || isLidUser(from)) {
-		if (recipient && !isJidMetaIa(recipient)) {
+	if (isPnUser(from) || isLidUser(from)) {
+		if (recipient && !isJidMetaAI(recipient)) {
 			if (!isMe(from!) && !isMeLid(from!)) {
 				throw new Boom('receipient present, but msg not from me', { data: stanza })
 			}
@@ -116,13 +176,11 @@ export function decodeMessageNode(stanza: BinaryNode, meId: string, meLid: strin
 
 	const key: WAMessageKey = {
 		remoteJid: chatId,
+		remoteJidAlt: !isJidGroup(chatId) ? addressingContext.senderAlt : undefined,
 		fromMe,
 		id: msgId,
-		senderLid: stanza?.attrs?.sender_lid || jidNormalizedUser(chatId),
-		senderPn: stanza?.attrs?.sender_pn || jidNormalizedUser(chatId),
 		participant,
-		participantPn: stanza?.attrs?.participant_pn,
-		participantLid: stanza?.attrs?.participant_lid,
+		participantAlt: isJidGroup(chatId) ? addressingContext.senderAlt : undefined,
 		...(msgType === 'newsletter' && stanza.attrs.server_id ? { server_id: stanza.attrs.server_id } : {})
 	}
 
@@ -162,12 +220,12 @@ export const decryptMessageNode = (
 				for (const { tag, attrs, content } of stanza.content) {
 					if (tag === 'verified_name' && content instanceof Uint8Array) {
 						const cert = proto.VerifiedNameCertificate.decode(content)
-						const details = proto.VerifiedNameCertificate.Details.decode(cert.details!)
+						const details = proto.VerifiedNameCertificate.Details.decode(cert.details)
 						fullMessage.verifiedBizName = details.verifiedName
 					}
 
 					if (tag === 'unavailable' && attrs.type === 'view_once') {
-						fullMessage.key.isViewOnce = true
+						fullMessage.key.isViewOnce = true // TODO: remove from here and add a STUB TYPE
 					}
 
 					if (tag !== 'enc' && tag !== 'plaintext') {
@@ -182,44 +240,43 @@ export const decryptMessageNode = (
 
 					let msgBuffer: Uint8Array
 
+					const user = isPnUser(sender) ? sender : author // TODO: flaky logic
+					const decryptionJid = await getDecryptionJid(user, repository)
+					if (tag !== 'plaintext') {
+						await storeMappingFromEnvelope(stanza, user, decryptionJid, repository, logger)
+					}
+
 					try {
 						const e2eType = tag === 'plaintext' ? 'plaintext' : attrs.type
-						if (e2eType !== 'plaintext') {
-							msgBuffer = await decryptWithRetry(
-								async () => {
-									switch (e2eType) {
-										case 'skmsg':
-											return await repository.decryptGroupMessage({
-												group: sender,
-												authorJid: author,
-												msg: content
-											})
-										case 'pkmsg':
-										case 'msg':
-											const user = isJidUser(sender) ? sender : author
-											return await repository.decryptMessage({
-												jid: user,
-												type: e2eType,
-												ciphertext: content
-											})
-										default:
-											throw new Error(`Unknown e2e type: ${e2eType}`)
-									}
-								},
-								logger,
-								fullMessage.key,
-								e2eType!
-							)
-						} else {
-							msgBuffer = content
+
+						switch (e2eType) {
+							case 'skmsg':
+								msgBuffer = await repository.decryptGroupMessage({
+									group: sender,
+									authorJid: author,
+									msg: content
+								})
+								break
+							case 'pkmsg':
+							case 'msg':
+								msgBuffer = await repository.decryptMessage({
+									jid: decryptionJid,
+									type: e2eType,
+									ciphertext: content
+								})
+								break
+							case 'plaintext':
+								msgBuffer = content
+								break
+							default:
+								throw new Error(`Unknown e2e type: ${e2eType}`)
 						}
 
-						let msg: proto.IMessage = proto.Message.decode(
+						let msg: ProtoType.IMessage = proto.Message.decode(
 							e2eType !== 'plaintext' ? unpadRandomMax16(msgBuffer) : msgBuffer
 						)
 						msg = msg.deviceSentMessage?.message || msg
 						if (msg.senderKeyDistributionMessage) {
-							//eslint-disable-next-line max-depth
 							try {
 								await repository.processSenderKeyDistributionMessage({
 									authorJid: author,
@@ -248,7 +305,7 @@ export const decryptMessageNode = (
 						logger.error(errorContext, 'failed to decrypt message')
 
 						fullMessage.messageStubType = proto.WebMessageInfo.StubType.CIPHERTEXT
-						fullMessage.messageStubParameters = [err.message]
+						fullMessage.messageStubParameters = [err.message.toString()]
 					}
 				}
 			}
@@ -268,61 +325,4 @@ export const decryptMessageNode = (
 function isSessionRecordError(error: any): boolean {
 	const errorMessage = error?.message || error?.toString() || ''
 	return DECRYPTION_RETRY_CONFIG.sessionRecordErrors.some(errorPattern => errorMessage.includes(errorPattern))
-}
-
-/**
- * Sleep utility for retry delays
- */
-function sleep(ms: number): Promise<void> {
-	return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-/**
- * Decrypt a single message with retry logic for session record errors
- */
-async function decryptWithRetry(
-	decryptFn: () => Promise<Uint8Array>,
-	logger: ILogger,
-	messageKey: WAMessageKey,
-	messageType: string
-): Promise<Uint8Array> {
-	let lastError: any
-
-	for (let attempt = 0; attempt <= DECRYPTION_RETRY_CONFIG.maxRetries; attempt++) {
-		try {
-			return await decryptFn()
-		} catch (error: any) {
-			lastError = error
-
-			// Only retry for session record errors
-			if (!isSessionRecordError(error)) {
-				throw error
-			}
-
-			// Don't retry on the last attempt
-			if (attempt === DECRYPTION_RETRY_CONFIG.maxRetries) {
-				break
-			}
-
-			// Calculate delay with exponential backoff
-			const delay = DECRYPTION_RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt)
-
-			logger.warn(
-				{
-					key: messageKey,
-					attempt: attempt + 1,
-					maxRetries: DECRYPTION_RETRY_CONFIG.maxRetries + 1,
-					error: error.message,
-					messageType,
-					delayMs: delay
-				},
-				'Session record error detected, retrying decryption'
-			)
-
-			await sleep(delay)
-		}
-	}
-
-	// If all retries failed, throw the last error
-	throw lastError
 }

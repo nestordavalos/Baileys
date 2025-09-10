@@ -1,6 +1,6 @@
 import makeWASocket from './Socket/index'
 
-export * from '../WAProto/index.js'
+export * from './WAProto/index'
 export * from './Utils/index'
 export * from './Types/index'
 export * from './Defaults/index'

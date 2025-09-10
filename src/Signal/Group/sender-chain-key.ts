@@ -1,5 +1,4 @@
-/* @ts-ignore */
-import { calculateMAC } from 'libsignal/src/crypto'
+import * as libsignal from '@raphaelvserafim/libsignal'
 import { SenderMessageKey } from './sender-message-key'
 
 export class SenderChainKey {
@@ -12,6 +11,8 @@ export class SenderChainKey {
 		this.iteration = iteration
 		if (chainKey instanceof Buffer) {
 			this.chainKey = chainKey
+		} else if (chainKey instanceof Uint8Array) {
+			this.chainKey = Buffer.from(chainKey)
 		} else {
 			this.chainKey = Buffer.from(chainKey || [])
 		}
@@ -34,6 +35,6 @@ export class SenderChainKey {
 	}
 
 	private getDerivative(seed: Uint8Array, key: Buffer): Uint8Array {
-		return calculateMAC(key, seed)
+		return libsignal.crypto.calculateMAC(key, seed)
 	}
 }

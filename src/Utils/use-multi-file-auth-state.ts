@@ -1,8 +1,8 @@
 import { Mutex } from 'async-mutex'
 import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { proto } from '../../WAProto/index.js'
 import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types'
+import { proto } from '../WAProto'
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
 
@@ -106,7 +106,7 @@ export const useMultiFileAuthState = async (
 						ids.map(async id => {
 							let value = await readData(`${type}-${id}.json`)
 							if (type === 'app-state-sync-key' && value) {
-								value = proto.Message.AppStateSyncKeyData.fromObject(value)
+								value = proto.Message.AppStateSyncKeyData.create(value)
 							}
 
 							data[id] = value

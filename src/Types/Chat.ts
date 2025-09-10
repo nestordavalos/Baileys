@@ -1,5 +1,6 @@
-import type { proto } from '../../WAProto/index.js'
+import type { ProtoType } from '../WAProto/'
 import type { AccountSettings } from './Auth'
+import type { QuickReplyAction } from './Bussines.js'
 import type { BufferedEventData } from './Events'
 import type { LabelActionBody } from './Label'
 import type { ChatLabelAssociationActionBody } from './LabelAssociation'
@@ -43,19 +44,19 @@ export type BotListInfo = {
 }
 
 export type ChatMutation = {
-	syncAction: proto.ISyncActionData
+	syncAction: ProtoType.ISyncActionData
 	index: string[]
 }
 
 export type WAPatchCreate = {
-	syncAction: proto.ISyncActionValue
+	syncAction: ProtoType.ISyncActionValue
 	index: string[]
 	type: WAPatchName
 	apiVersion: number
-	operation: proto.SyncdMutation.SyncdOperation
+	operation: ProtoType.SyncdMutation.SyncdOperation
 }
 
-export type Chat = proto.IConversation & {
+export type Chat = ProtoType.IConversation & {
 	/** unix timestamp of when the last message was received in the chat */
 	lastMessageRecvTimestamp?: number
 }
@@ -72,6 +73,8 @@ export type ChatUpdate = Partial<
 		 * undefined if the condition is not yet fulfilled
 		 * */
 		conditional: (bufferedData: BufferedEventData) => boolean | undefined
+		/** last update time */
+		timestamp?: number
 	}
 >
 
@@ -79,7 +82,7 @@ export type ChatUpdate = Partial<
  * the last messages in a chat, sorted reverse-chronologically. That is, the latest message should be first in the chat
  * for MD modifications, the last message in the array (i.e. the earlist message) must be the last message recv in the chat
  * */
-export type LastMessageList = MinimalMessage[] | proto.SyncActionValue.ISyncActionMessageRange
+export type LastMessageList = MinimalMessage[] | ProtoType.SyncActionValue.ISyncActionMessageRange
 
 export type ChatModification =
 	| {
@@ -110,8 +113,8 @@ export type ChatModification =
 			lastMessages: LastMessageList
 	  }
 	| { delete: true; lastMessages: LastMessageList }
-	| { contact: proto.SyncActionValue.IContactAction | null }
-	| { disableLinkPreviews: proto.SyncActionValue.IPrivacySettingDisableLinkPreviewsAction }
+	| { contact: ProtoType.SyncActionValue.IContactAction | null }
+	| { disableLinkPreviews: ProtoType.SyncActionValue.IPrivacySettingDisableLinkPreviewsAction }
 	// Label
 	| { addLabel: LabelActionBody }
 	// Label assosiation
@@ -119,6 +122,7 @@ export type ChatModification =
 	| { removeChatLabel: ChatLabelAssociationActionBody }
 	| { addMessageLabel: MessageLabelAssociationActionBody }
 	| { removeMessageLabel: MessageLabelAssociationActionBody }
+	| { quickReply: QuickReplyAction }
 
 export type InitialReceivedChatsState = {
 	[jid: string]: {

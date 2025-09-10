@@ -1,4 +1,3 @@
-import { proto } from '../../WAProto/index.js'
 import {
 	type GroupMetadata,
 	type GroupParticipant,
@@ -17,6 +16,7 @@ import {
 	jidEncode,
 	jidNormalizedUser
 } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { makeBusinessSocket } from './business'
 
 export const makeCommunitiesSocket = (config: SocketConfig) => {
@@ -149,6 +149,26 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 
 			return await parseGroupResult(result)
 		},
+		communityCreateGroup: async (subject: string, participants: string[], parentCommunityJid: string) => {
+			const key = generateMessageIDV2()
+			const result = await communityQuery('@g.us', 'set', [
+				{
+					tag: 'create',
+					attrs: {
+						subject,
+						key
+					},
+					content: [
+						...participants.map(jid => ({
+							tag: 'participant',
+							attrs: { jid }
+						})),
+						{ tag: 'linked_parent', attrs: { jid: parentCommunityJid } }
+					]
+				}
+			])
+			return await parseGroupResult(result)
+		},
 		communityLeave: async (id: string) => {
 			await communityQuery('@g.us', 'set', [
 				{
@@ -164,6 +184,30 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 					tag: 'subject',
 					attrs: {},
 					content: Buffer.from(subject, 'utf-8')
+				}
+			])
+		},
+		communityLinkGroup: async (groupJid: string, parentCommunityJid: string) => {
+			await communityQuery(parentCommunityJid, 'set', [
+				{
+					tag: 'links',
+					attrs: {},
+					content: [
+						{
+							tag: 'link',
+							attrs: { link_type: 'sub_group' },
+							content: [{ tag: 'group', attrs: { jid: groupJid } }]
+						}
+					]
+				}
+			])
+		},
+		communityUnlinkGroup: async (groupJid: string, parentCommunityJid: string) => {
+			await communityQuery(parentCommunityJid, 'set', [
+				{
+					tag: 'unlink',
+					attrs: { unlink_type: 'sub_group' },
+					content: [{ tag: 'group', attrs: { jid: groupJid } }]
 				}
 			])
 		},
@@ -269,7 +313,7 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 		 * @param inviteMessage the message to accept
 		 */
 		communityAcceptInviteV4: ev.createBufferedFunction(
-			async (key: string | WAMessageKey, inviteMessage: proto.Message.IGroupInviteMessage) => {
+			async (key: string | WAMessageKey, inviteMessage: ProtoType.Message.IGroupInviteMessage) => {
 				key = typeof key === 'string' ? { remoteJid: key } : key
 				const results = await communityQuery(inviteMessage.groupJid!, 'set', [
 					{
@@ -286,7 +330,7 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 				// update the invite message to be expired
 				if (key.id) {
 					// create new invite message that is expired
-					inviteMessage = proto.Message.GroupInviteMessage.fromObject(inviteMessage)
+					inviteMessage = proto.Message.GroupInviteMessage.create(inviteMessage)
 					inviteMessage.inviteExpiration = 0
 					inviteMessage.inviteCode = ''
 					ev.emit('messages.update', [
