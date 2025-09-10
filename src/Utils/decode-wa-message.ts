@@ -17,11 +17,12 @@ import { unpadRandomMax16 } from './generics'
 import type { ILogger } from './logger'
 
 const getDecryptionJid = async (sender: string, repository: SignalRepository): Promise<string> => {
-	if (!sender.includes('@s.whatsapp.net')) {
-		return sender
-	}
+        if (!sender.includes('@s.whatsapp.net')) {
+                return sender
+        }
 
-	return (await repository.getLIDMappingStore().getLIDForPN(sender))!
+        const lid = await repository.getLIDMappingStore().getLIDForPN(sender)
+        return lid ?? sender
 }
 
 const storeMappingFromEnvelope = async (
