@@ -76,7 +76,7 @@ export function makeCacheableSignalKeyStore(
 				let keys = 0
 				for (const type in data) {
 					for (const id in data[type as keyof SignalDataTypeMap]) {
-						await cache.set(getUniqueId(type, id), data[type as keyof SignalDataTypeMap]![id]!)
+						cache.set(getUniqueId(type, id), data[type as keyof SignalDataTypeMap]![id]!)
 						keys += 1
 					}
 				}
@@ -87,7 +87,7 @@ export function makeCacheableSignalKeyStore(
 			})
 		},
 		async clear() {
-			await cache.flushAll()
+			cache.flushAll()
 			await store.clear?.()
 		}
 	}
