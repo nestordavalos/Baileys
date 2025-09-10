@@ -346,7 +346,10 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 		participants: getBinaryNodeChildren(group, 'participant').map(({ attrs }) => {
 			return {
 				id: attrs.jid!,
-				phoneNumber: isLidUser(attrs.jid) && isPnUser(attrs.phoneNumber) ? attrs.phoneNumber : undefined,
+				phoneNumber:
+					isLidUser(attrs.jid) && typeof attrs.phone_number === 'string' && attrs.phone_number
+						? jidEncode(attrs.phone_number, 's.whatsapp.net')
+						: undefined,
 				lid: isPnUser(attrs.jid) && isLidUser(attrs.lid) ? attrs.lid : undefined,
 				admin: (attrs.type || null) as GroupParticipant['admin']
 			}
