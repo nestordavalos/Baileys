@@ -90,7 +90,9 @@ export class LIDMappingStore {
 
 		if (!lidUser) {
 			logger.trace(`No LID mapping found for PN user ${pnUser}; getting from USync`)
-			const { exists, lid } = (await this.onWhatsAppFunc?.(pn))?.[0]! // this function already adds LIDs to mapping
+			const onWhatsAppResult = (await this.onWhatsAppFunc?.(pn))?.[0]
+			if (!onWhatsAppResult) return null
+			const { exists, lid } = onWhatsAppResult // this function already adds LIDs to mapping
 			if (exists) {
 				lidUser = jidDecode(lid)?.user
 			} else {
