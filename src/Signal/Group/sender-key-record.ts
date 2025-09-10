@@ -64,7 +64,17 @@ export class SenderKeyRecord {
 	static deserialize(data: Uint8Array | string | SenderKeyStateStructure[]): SenderKeyRecord {
 		let parsed: SenderKeyStateStructure[]
 		if (typeof data === 'string') {
-			parsed = JSON.parse(data, BufferJSON.reviver)
+			try {
+				parsed = JSON.parse(data, BufferJSON.reviver)
+			} catch (e) {
+				// Si falla, intenta decodificar como base64
+				try {
+					const str = Buffer.from(data, 'base64').toString('utf-8')
+					parsed = JSON.parse(str, BufferJSON.reviver)
+				} catch (e2) {
+					throw new Error('SenderKeyRecord.deserialize: dato inválido, no es JSON ni base64')
+				}
+			}
 		} else if (data instanceof Uint8Array) {
 			const str = Buffer.from(data).toString('utf-8')
 			parsed = JSON.parse(str, BufferJSON.reviver)
