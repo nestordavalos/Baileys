@@ -1159,12 +1159,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			const altServer = jidDecode(alt)?.server
 			const lidMapping = signalRepository.getLIDMappingStore()
 			if (altServer === 'lid') {
-				if (typeof (await lidMapping.getPNForLID(alt)) !== 'string') {
-					await lidMapping.storeLIDPNMapping(alt, msg.key.participant || msg.key.remoteJid!)
+				if (typeof (await lidMapping.getPNForLID(alt)) === 'string') {
+					// already have PN for this LID
 				}
 			} else {
-				if (typeof (await lidMapping.getLIDForPN(alt)) !== 'string') {
-					await lidMapping.storeLIDPNMapping(msg.key.participant || msg.key.remoteJid!, alt)
+				if (typeof (await lidMapping.getLIDForPN(alt)) === 'string') {
+					// already have LID for this PN
 				}
 			}
 		}
@@ -1398,12 +1398,11 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	}
 
 	const makeOfflineNodeProcessor = () => {
-		const nodeProcessorMap: Map<MessageType, (node: BinaryNode) => Promise<void>> = new Map([
-			['message', handleMessage],
-			['call', handleCall],
-			['receipt', handleReceipt],
-			['notification', handleNotification]
-		])
+		const nodeProcessorMap: Map<MessageType, (node: BinaryNode) => Promise<void>> = new Map()
+		nodeProcessorMap.set('message', handleMessage)
+		nodeProcessorMap.set('call', handleCall)
+		nodeProcessorMap.set('receipt', handleReceipt)
+		nodeProcessorMap.set('notification', handleNotification)
 		const nodes: OfflineNode[] = []
 		let isProcessing = false
 
