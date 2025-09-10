@@ -1,6 +1,5 @@
 import { Boom } from '@hapi/boom'
 import type { AxiosRequestConfig } from 'axios'
-import { proto } from '../../WAProto/index.js'
 import type {
 	BaileysEventEmitter,
 	Chat,
@@ -19,21 +18,15 @@ import {
 	LabelAssociationType,
 	type MessageLabelAssociation
 } from '../Types/LabelAssociation'
-import {
-	type BinaryNode,
-	getBinaryNodeChild,
-	getBinaryNodeChildren,
-	isJidGroup,
-	isJidUser,
-	jidNormalizedUser
-} from '../WABinary'
+import { type BinaryNode, getBinaryNodeChild, getBinaryNodeChildren, isJidGroup, jidNormalizedUser } from '../WABinary'
 import { aesDecrypt, aesEncrypt, hkdf, hmacSign } from './crypto'
 import { toNumber } from './generics'
 import type { ILogger } from './logger'
 import { LT_HASH_ANTI_TAMPERING } from './lt-hash'
 import { downloadContentFromMessage } from './messages-media'
+import { proto, type ProtoType } from '../WAProto'
 
-type FetchAppStateSyncKey = (keyId: string) => Promise<proto.Message.IAppStateSyncKeyData | null | undefined>
+type FetchAppStateSyncKey = (keyId: string) => Promise<ProtoType.Message.IAppStateSyncKeyData | null | undefined>
 
 export type ChatMutationMap = { [index: string]: ChatMutation }
 
@@ -49,7 +42,7 @@ const mutationKeys = async (keydata: Uint8Array) => {
 }
 
 const generateMac = (
-	operation: proto.SyncdMutation.SyncdOperation,
+	operation: ProtoType.SyncdMutation.SyncdOperation,
 	data: Buffer,
 	keyId: Uint8Array | string,
 	key: Buffer
@@ -86,7 +79,7 @@ const to64BitNetworkOrder = (e: number) => {
 	return buff
 }
 
-type Mac = { indexMac: Uint8Array; valueMac: Uint8Array; operation: proto.SyncdMutation.SyncdOperation }
+type Mac = { indexMac: Uint8Array; valueMac: Uint8Array; operation: ProtoType.SyncdMutation.SyncdOperation }
 
 const makeLtHashGenerator = ({ indexValueMap, hash }: Pick<LTHashState, 'hash' | 'indexValueMap'>) => {
 	indexValueMap = { ...indexValueMap }
@@ -161,7 +154,7 @@ export const encodeSyncdPatch = async (
 	state = { ...state, indexValueMap: { ...state.indexValueMap } }
 
 	const indexBuffer = Buffer.from(JSON.stringify(index))
-	const dataProto = proto.SyncActionData.fromObject({
+	const dataProto = proto.SyncActionData.create({
 		index: indexBuffer,
 		value: syncAction,
 		padding: new Uint8Array(0),
@@ -184,7 +177,7 @@ export const encodeSyncdPatch = async (
 
 	const snapshotMac = generateSnapshotMac(state.hash, state.version, type, keyValue.snapshotMacKey)
 
-	const patch: proto.ISyncdPatch = {
+	const patch: ProtoType.ISyncdPatch = {
 		patchMac: generatePatchMac(snapshotMac, [valueMac], state.version, type, keyValue.patchMacKey),
 		snapshotMac: snapshotMac,
 		keyId: { id: encKeyId },
@@ -211,7 +204,7 @@ export const encodeSyncdPatch = async (
 }
 
 export const decodeSyncdMutations = async (
-	msgMutations: (proto.ISyncdMutation | proto.ISyncdRecord)[],
+	msgMutations: (ProtoType.ISyncdMutation | ProtoType.ISyncdRecord)[],
 	initialState: LTHashState,
 	getAppStateSyncKey: FetchAppStateSyncKey,
 	onMutation: (mutation: ChatMutation) => void,
@@ -226,7 +219,7 @@ export const decodeSyncdMutations = async (
 		// otherwise, if it's only a record -- it'll be a SET mutation
 		const operation = 'operation' in msgMutation ? msgMutation.operation : proto.SyncdMutation.SyncdOperation.SET
 		const record =
-			'record' in msgMutation && !!msgMutation.record ? msgMutation.record : (msgMutation as proto.ISyncdRecord)
+			'record' in msgMutation && !!msgMutation.record ? msgMutation.record : (msgMutation as ProtoType.ISyncdRecord)
 
 		const key = await getKey(record.keyId!.id!)
 		const content = Buffer.from(record.value!.blob!)
@@ -243,13 +236,13 @@ export const decodeSyncdMutations = async (
 		const syncAction = proto.SyncActionData.decode(result)
 
 		if (validateMacs) {
-			const hmac = hmacSign(syncAction.index!, key.indexKey)
+			const hmac = hmacSign(syncAction.index, key.indexKey)
 			if (Buffer.compare(hmac, record.index!.blob!) !== 0) {
 				throw new Boom('HMAC index verification failed')
 			}
 		}
 
-		const indexStr = Buffer.from(syncAction.index!).toString()
+		const indexStr = Buffer.from(syncAction.index).toString()
 		onMutation({ syncAction, index: JSON.parse(indexStr) })
 
 		ltGenerator.mix({
@@ -276,7 +269,7 @@ export const decodeSyncdMutations = async (
 }
 
 export const decodeSyncdPatch = async (
-	msg: proto.ISyncdPatch,
+	msg: ProtoType.ISyncdPatch,
 	name: WAPatchName,
 	initialState: LTHashState,
 	getAppStateSyncKey: FetchAppStateSyncKey,
@@ -314,7 +307,7 @@ export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequ
 	const collectionNodes = getBinaryNodeChildren(syncNode, 'collection')
 
 	const final = {} as {
-		[T in WAPatchName]: { patches: proto.ISyncdPatch[]; hasMorePatches: boolean; snapshot?: proto.ISyncdSnapshot }
+		[T in WAPatchName]: { patches: ProtoType.ISyncdPatch[]; hasMorePatches: boolean; snapshot?: ProtoType.ISyncdSnapshot }
 	}
 	await Promise.all(
 		collectionNodes.map(async collectionNode => {
@@ -323,12 +316,12 @@ export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequ
 			const patches = getBinaryNodeChildren(patchesNode || collectionNode, 'patch')
 			const snapshotNode = getBinaryNodeChild(collectionNode, 'snapshot')
 
-			const syncds: proto.ISyncdPatch[] = []
+			const syncds: ProtoType.ISyncdPatch[] = []
 			const name = collectionNode.attrs.name as WAPatchName
 
 			const hasMorePatches = collectionNode.attrs.has_more_patches === 'true'
 
-			let snapshot: proto.ISyncdSnapshot | undefined = undefined
+			let snapshot: ProtoType.ISyncdSnapshot | undefined = undefined
 			if (snapshotNode && !!snapshotNode.content) {
 				if (!Buffer.isBuffer(snapshotNode)) {
 					snapshotNode.content = Buffer.from(Object.values(snapshotNode.content))
@@ -361,7 +354,7 @@ export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequ
 	return final
 }
 
-export const downloadExternalBlob = async (blob: proto.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
+export const downloadExternalBlob = async (blob: ProtoType.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
 	const stream = await downloadContentFromMessage(blob, 'md-app-state', { options })
 	const bufferArray: Buffer[] = []
 	for await (const chunk of stream) {
@@ -371,7 +364,7 @@ export const downloadExternalBlob = async (blob: proto.IExternalBlobReference, o
 	return Buffer.concat(bufferArray)
 }
 
-export const downloadExternalPatch = async (blob: proto.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
+export const downloadExternalPatch = async (blob: ProtoType.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
 	const buffer = await downloadExternalBlob(blob, options)
 	const syncData = proto.SyncdMutations.decode(buffer)
 	return syncData
@@ -379,7 +372,7 @@ export const downloadExternalPatch = async (blob: proto.IExternalBlobReference, 
 
 export const decodeSyncdSnapshot = async (
 	name: WAPatchName,
-	snapshot: proto.ISyncdSnapshot,
+	snapshot: ProtoType.ISyncdSnapshot,
 	getAppStateSyncKey: FetchAppStateSyncKey,
 	minimumVersionNumber: number | undefined,
 	validateMacs = true
@@ -396,10 +389,10 @@ export const decodeSyncdSnapshot = async (
 		getAppStateSyncKey,
 		areMutationsRequired
 			? mutation => {
-					const index = mutation.syncAction.index?.toString()
-					mutationMap[index!] = mutation
-				}
-			: () => {},
+				const index = mutation.syncAction.index?.toString()
+				mutationMap[index!] = mutation
+			}
+			: () => { },
 		validateMacs
 	)
 	newState.hash = hash
@@ -427,7 +420,7 @@ export const decodeSyncdSnapshot = async (
 
 export const decodePatches = async (
 	name: WAPatchName,
-	syncds: proto.ISyncdPatch[],
+	syncds: ProtoType.ISyncdPatch[],
 	initial: LTHashState,
 	getAppStateSyncKey: FetchAppStateSyncKey,
 	options: AxiosRequestConfig<{}>,
@@ -463,10 +456,10 @@ export const decodePatches = async (
 			getAppStateSyncKey,
 			shouldMutate
 				? mutation => {
-						const index = mutation.syncAction.index?.toString()
-						mutationMap[index!] = mutation
-					}
-				: () => {},
+					const index = mutation.syncAction.index?.toString()
+					mutationMap[index!] = mutation
+				}
+				: () => { },
 			true
 		)
 
@@ -497,31 +490,31 @@ export const decodePatches = async (
 export const chatModificationToAppPatch = (mod: ChatModification, jid: string) => {
 	const OP = proto.SyncdMutation.SyncdOperation
 	const getMessageRange = (lastMessages: LastMessageList) => {
-		let messageRange: proto.SyncActionValue.ISyncActionMessageRange
+		let messageRange: ProtoType.SyncActionValue.ISyncActionMessageRange
 		if (Array.isArray(lastMessages)) {
 			const lastMsg = lastMessages[lastMessages.length - 1]
 			messageRange = {
 				lastMessageTimestamp: lastMsg?.messageTimestamp,
 				messages: lastMessages?.length
 					? lastMessages.map(m => {
-							if (!m.key?.id || !m.key?.remoteJid) {
-								throw new Boom('Incomplete key', { statusCode: 400, data: m })
-							}
+						if (!m.key?.id || !m.key?.remoteJid) {
+							throw new Boom('Incomplete key', { statusCode: 400, data: m })
+						}
 
-							if (isJidGroup(m.key.remoteJid) && !m.key.fromMe && !m.key.participant) {
-								throw new Boom('Expected not from me message to have participant', { statusCode: 400, data: m })
-							}
+						if (isJidGroup(m.key.remoteJid) && !m.key.fromMe && !m.key.participant) {
+							throw new Boom('Expected not from me message to have participant', { statusCode: 400, data: m })
+						}
 
-							if (!m.messageTimestamp || !toNumber(m.messageTimestamp)) {
-								throw new Boom('Missing timestamp in last message list', { statusCode: 400, data: m })
-							}
+						if (!m.messageTimestamp || !toNumber(m.messageTimestamp)) {
+							throw new Boom('Missing timestamp in last message list', { statusCode: 400, data: m })
+						}
 
-							if (m.key.participant) {
-								m.key.participant = jidNormalizedUser(m.key.participant)
-							}
+						if (m.key.participant) {
+							m.key.participant = jidNormalizedUser(m.key.participant)
+						}
 
-							return m
-						})
+						return m
+					})
 					: undefined
 			}
 		} else {
@@ -664,6 +657,22 @@ export const chatModificationToAppPatch = (mod: ChatModification, jid: string) =
 			index: ['setting_pushName'],
 			type: 'critical_block',
 			apiVersion: 1,
+			operation: OP.SET
+		}
+	} else if ('quickReply' in mod) {
+		patch = {
+			syncAction: {
+				quickReplyAction: {
+					count: 0,
+					deleted: mod.quickReply.deleted || false,
+					keywords: [],
+					message: mod.quickReply.message || '',
+					shortcut: mod.quickReply.shortcut || ''
+				}
+			},
+			index: ['quick_reply', mod.quickReply.timestamp || String(Math.floor(Date.now() / 1000))],
+			type: 'regular',
+			apiVersion: 2,
 			operation: OP.SET
 		}
 	} else if ('addLabel' in mod) {
@@ -829,7 +838,7 @@ export const processSyncAction = (
 				id: id!,
 				name: action.contactAction.fullName!,
 				lid: action.contactAction.lidJid || undefined,
-				jid: isJidUser(id) ? id : undefined
+				phoneNumber: action.contactAction.pnJid || undefined
 			}
 		])
 	} else if (action?.pushNameSetting) {
@@ -885,16 +894,16 @@ export const processSyncAction = (
 			association:
 				type === LabelAssociationType.Chat
 					? ({
-							type: LabelAssociationType.Chat,
-							chatId: syncAction.index[2],
-							labelId: syncAction.index[1]
-						} as ChatLabelAssociation)
+						type: LabelAssociationType.Chat,
+						chatId: syncAction.index[2],
+						labelId: syncAction.index[1]
+					} as ChatLabelAssociation)
 					: ({
-							type: LabelAssociationType.Message,
-							chatId: syncAction.index[2],
-							messageId: syncAction.index[3],
-							labelId: syncAction.index[1]
-						} as MessageLabelAssociation)
+						type: LabelAssociationType.Message,
+						chatId: syncAction.index[2],
+						messageId: syncAction.index[3],
+						labelId: syncAction.index[1]
+					} as MessageLabelAssociation)
 		})
 	} else {
 		logger?.debug({ syncAction, id }, 'unprocessable update')
@@ -902,21 +911,21 @@ export const processSyncAction = (
 
 	function getChatUpdateConditional(
 		id: string,
-		msgRange: proto.SyncActionValue.ISyncActionMessageRange | null | undefined
+		msgRange: ProtoType.SyncActionValue.ISyncActionMessageRange | null | undefined
 	): ChatUpdate['conditional'] {
 		return isInitialSync
 			? data => {
-					const chat = data.historySets.chats[id] || data.chatUpserts[id]
-					if (chat) {
-						return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true
-					}
+				const chat = data.historySets.chats[id] || data.chatUpserts[id]
+				if (chat) {
+					return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true
 				}
+			}
 			: undefined
 	}
 
 	function isValidPatchBasedOnMessageRange(
 		chat: Chat,
-		msgRange: proto.SyncActionValue.ISyncActionMessageRange | null | undefined
+		msgRange: ProtoType.SyncActionValue.ISyncActionMessageRange | null | undefined
 	) {
 		const lastMsgTimestamp = Number(msgRange?.lastMessageTimestamp || msgRange?.lastSystemMessageTimestamp || 0)
 		const chatLastMsgTimestamp = Number(chat?.lastMessageRecvTimestamp || 0)

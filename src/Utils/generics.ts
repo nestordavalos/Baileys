@@ -2,9 +2,9 @@ import { Boom } from '@hapi/boom'
 import axios, { type AxiosRequestConfig } from 'axios'
 import { createHash, randomBytes } from 'crypto'
 import { platform, release } from 'os'
-import { proto } from '../../WAProto/index.js'
-import version from '../Defaults/baileys-version.json' with { type: 'json' }
-const baileysVersion = version.version
+
+const baileysVersion = [2, 3000, 1023223821]
+
 import type {
 	BaileysEventEmitter,
 	BaileysEventMap,
@@ -15,6 +15,7 @@ import type {
 } from '../Types'
 import { DisconnectReason } from '../Types'
 import { type BinaryNode, getAllBinaryNodeChildren, jidDecode } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 
 const PLATFORM_MAP = {
 	aix: 'AIX',
@@ -40,12 +41,11 @@ export const Browsers: BrowsersMap = {
 }
 
 export const getPlatformId = (browser: string) => {
-	const platformType = proto.DeviceProps.PlatformType[browser.toUpperCase() as any]
+	const platformType = proto.DeviceProps.PlatformType[browser.toUpperCase() as keyof typeof proto.DeviceProps.PlatformType]
 	return platformType ? platformType.toString() : '1' //chrome
 }
 
 export const BufferJSON = {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	replacer: (k: any, value: any) => {
 		if (Buffer.isBuffer(value) || value instanceof Uint8Array || value?.type === 'Buffer') {
 			return { type: 'Buffer', data: Buffer.from(value?.data || value).toString('base64') }
@@ -53,8 +53,6 @@ export const BufferJSON = {
 
 		return value
 	},
-
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	reviver: (_: any, value: any) => {
 		if (typeof value === 'object' && !!value && (value.buffer === true || value.type === 'Buffer')) {
 			const val = value.data || value.value
@@ -65,19 +63,14 @@ export const BufferJSON = {
 	}
 }
 
-export const getKeyAuthor = (key: proto.IMessageKey | undefined | null, meId = 'me') =>
+export const getKeyAuthor = (key: ProtoType.IMessageKey | undefined | null, meId = 'me') =>
 	(key?.fromMe ? meId : key?.participant || key?.remoteJid) || ''
 
 export const writeRandomPadMax16 = (msg: Uint8Array) => {
 	const pad = randomBytes(1)
+	const padLength = (pad[0]! & 0x0f) + 1
 
-	if (pad[0]) {
-		pad[0] &= 0xf
-	} else {
-		pad[0] = 0xf
-	}
-
-	return Buffer.concat([msg, Buffer.alloc(pad[0], pad[0])])
+	return Buffer.concat([msg, Buffer.alloc(padLength, padLength)])
 }
 
 export const unpadRandomMax16 = (e: Uint8Array | Buffer) => {
@@ -94,7 +87,7 @@ export const unpadRandomMax16 = (e: Uint8Array | Buffer) => {
 	return new Uint8Array(t.buffer, t.byteOffset, t.length - r)
 }
 
-export const encodeWAMessage = (message: proto.IMessage) => writeRandomPadMax16(proto.Message.encode(message).finish())
+export const encodeWAMessage = (message: ProtoType.IMessage) => writeRandomPadMax16(proto.Message.encode(message).finish())
 
 export const generateRegistrationId = (): number => {
 	return Uint16Array.from(randomBytes(2))[0]! & 16383
@@ -251,15 +244,27 @@ export const bindWaitForConnectionUpdate = (ev: BaileysEventEmitter) => bindWait
  * Use to ensure your WA connection is always on the latest version
  */
 export const fetchLatestBaileysVersion = async (options: AxiosRequestConfig<{}> = {}) => {
-	const URL = 'https://raw.githubusercontent.com/WhiskeySockets/Baileys/master/src/Defaults/baileys-version.json'
+	const URL = 'https://raw.githubusercontent.com/WhiskeySockets/Baileys/master/src/Defaults/index.ts'
 	try {
-		const result = await axios.get<{ version: WAVersion }>(URL, {
+		const result = await axios.get<string>(URL, {
 			...options,
-			responseType: 'json'
+			responseType: 'text'
 		})
-		return {
-			version: result.data.version,
-			isLatest: true
+
+		// Extract version from line 7 (const version = [...])
+		const lines = result.data.split('\n')
+		const versionLine = lines[6] // Line 7 (0-indexed)
+		const versionMatch = versionLine!.match(/const version = \[(\d+),\s*(\d+),\s*(\d+)\]/)
+
+		if (versionMatch) {
+			const version = [parseInt(versionMatch[1]!), parseInt(versionMatch[2]!), parseInt(versionMatch[3]!)] as WAVersion
+
+			return {
+				version,
+				isLatest: true
+			}
+		} else {
+			throw new Error('Could not parse version from Defaults/index.ts')
 		}
 	} catch (error) {
 		return {
@@ -315,7 +320,7 @@ export const generateMdTagPrefix = () => {
 	return `${bytes.readUInt16BE()}.${bytes.readUInt16BE(2)}-`
 }
 
-const STATUS_MAP: { [_: string]: proto.WebMessageInfo.Status } = {
+const STATUS_MAP: { [_: string]: ProtoType.WebMessageInfo.Status } = {
 	sender: proto.WebMessageInfo.Status.SERVER_ACK,
 	played: proto.WebMessageInfo.Status.PLAYED,
 	read: proto.WebMessageInfo.Status.READ,
@@ -451,6 +456,6 @@ export function bytesToCrockford(buffer: Buffer): string {
 	return crockford.join('')
 }
 
-export function encodeNewsletterMessage(message: proto.IMessage): Uint8Array {
+export function encodeNewsletterMessage(message: ProtoType.IMessage): Uint8Array {
 	return proto.Message.encode(message).finish()
 }

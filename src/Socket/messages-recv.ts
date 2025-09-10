@@ -2,7 +2,6 @@ import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
 import { randomBytes } from 'crypto'
 import Long from 'long'
-import { proto } from '../../WAProto/index.js'
 import { DEFAULT_CACHE_TTLS, KEY_BUNDLE_TYPE, MIN_PREKEY_COUNT } from '../Defaults'
 import type {
 	MessageReceiptType,
@@ -11,6 +10,7 @@ import type {
 	SocketConfig,
 	WACallEvent,
 	WACallUpdateType,
+	WAMessage,
 	WAMessageKey,
 	WAPatchName
 } from '../Types'
@@ -50,7 +50,6 @@ import {
 	getBinaryNodeChildString,
 	isJidGroup,
 	isJidStatusBroadcast,
-	isJidUser,
 	isLidUser,
 	jidDecode,
 	jidNormalizedUser,
@@ -58,9 +57,11 @@ import {
 } from '../WABinary'
 import { extractGroupMetadata } from './groups'
 import { makeMessagesSocket } from './messages-send'
+import { proto, type ProtoType } from '../WAProto'
 
 export const makeMessagesRecvSocket = (config: SocketConfig) => {
-	const { logger, retryRequestDelayMs, maxMsgRetryCount, getMessage, shouldIgnoreJid } = config
+	const { logger, retryRequestDelayMs, maxMsgRetryCount, getMessage, shouldIgnoreJid, enableAutoSessionRecreation } =
+		config
 	const sock = makeMessagesSocket(config)
 	const {
 		ev,
@@ -77,7 +78,8 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		relayMessage,
 		sendReceipt,
 		uploadPreKeys,
-		sendPeerDataOperationMessage
+		sendPeerDataOperationMessage,
+		messageRetryManager
 	} = sock
 
 	/** this mutex ensures that each retryRequest will wait for the previous one to finish */
@@ -104,6 +106,219 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		})
 
 	let sendActiveReceipts = false
+
+	const fetchMessageHistory = async (
+		count: number,
+		oldestMsgKey: WAMessageKey,
+		oldestMsgTimestamp: number | Long
+	): Promise<string> => {
+		if (!authState.creds.me?.id) {
+			throw new Boom('Not authenticated')
+		}
+
+		const pdoMessage: ProtoType.Message.IPeerDataOperationRequestMessage = {
+			historySyncOnDemandRequest: {
+				chatJid: oldestMsgKey.remoteJid,
+				oldestMsgFromMe: oldestMsgKey.fromMe,
+				oldestMsgId: oldestMsgKey.id,
+				oldestMsgTimestampMs: oldestMsgTimestamp,
+				onDemandMsgCount: count
+			},
+			peerDataOperationRequestType: proto.Message.PeerDataOperationRequestType.HISTORY_SYNC_ON_DEMAND
+		}
+
+		return sendPeerDataOperationMessage(pdoMessage)
+	}
+
+	const requestPlaceholderResend = async (messageKey: WAMessageKey): Promise<string | undefined> => {
+		if (!authState.creds.me?.id) {
+			throw new Boom('Not authenticated')
+		}
+
+		if (placeholderResendCache.get(messageKey?.id!)) {
+			logger.debug({ messageKey }, 'already requested resend')
+			return
+		} else {
+			placeholderResendCache.set(messageKey?.id!, true)
+		}
+
+		await delay(5000)
+
+		if (!placeholderResendCache.get(messageKey?.id!)) {
+			logger.debug({ messageKey }, 'message received while resend requested')
+			return 'RESOLVED'
+		}
+
+		const pdoMessage = {
+			placeholderMessageResendRequest: [
+				{
+					messageKey
+				}
+			],
+			peerDataOperationRequestType: proto.Message.PeerDataOperationRequestType.PLACEHOLDER_MESSAGE_RESEND
+		}
+
+		setTimeout(() => {
+			if (placeholderResendCache.get(messageKey?.id!)) {
+				logger.debug({ messageKey }, 'PDO message without response after 15 seconds. Phone possibly offline')
+				placeholderResendCache.del(messageKey?.id!)
+			}
+		}, 15_000)
+
+		return sendPeerDataOperationMessage(pdoMessage)
+	}
+
+	// Handles mex newsletter notifications
+	const handleMexNewsletterNotification = async (node: BinaryNode) => {
+		const mexNode = getBinaryNodeChild(node, 'mex')
+		if (!mexNode?.content) {
+			logger.warn({ node }, 'Invalid mex newsletter notification')
+			return
+		}
+
+		let data: any
+		try {
+			data = JSON.parse(mexNode.content.toString())
+		} catch (error) {
+			logger.error({ err: error, node }, 'Failed to parse mex newsletter notification')
+			return
+		}
+
+		const operation = data?.operation
+		const updates = data?.updates
+
+		if (!updates || !operation) {
+			logger.warn({ data }, 'Invalid mex newsletter notification content')
+			return
+		}
+
+		logger.info({ operation, updates }, 'got mex newsletter notification')
+
+		switch (operation) {
+			case 'NotificationNewsletterUpdate':
+				for (const update of updates) {
+					if (update.jid && update.settings && Object.keys(update.settings).length > 0) {
+						ev.emit('newsletter-settings.update', {
+							id: update.jid,
+							update: update.settings
+						})
+					}
+				}
+
+				break
+
+			case 'NotificationNewsletterAdminPromote':
+				for (const update of updates) {
+					if (update.jid && update.user) {
+						ev.emit('newsletter-participants.update', {
+							id: update.jid,
+							author: node.attrs.from!,
+							user: update.user,
+							new_role: 'ADMIN',
+							action: 'promote'
+						})
+					}
+				}
+
+				break
+
+			default:
+				logger.info({ operation, data }, 'Unhandled mex newsletter notification')
+				break
+		}
+	}
+
+	// Handles newsletter notifications
+	const handleNewsletterNotification = async (node: BinaryNode) => {
+		const from = node.attrs.from!
+		const child = getAllBinaryNodeChildren(node)[0]!
+		const author = node.attrs.participant!
+
+		logger.info({ from, child }, 'got newsletter notification')
+
+		switch (child.tag) {
+			case 'reaction':
+				const reactionUpdate = {
+					id: from,
+					server_id: child.attrs.message_id!,
+					reaction: {
+						code: getBinaryNodeChildString(child, 'reaction'),
+						count: 1
+					}
+				}
+				ev.emit('newsletter.reaction', reactionUpdate)
+				break
+
+			case 'view':
+				const viewUpdate = {
+					id: from,
+					server_id: child.attrs.message_id!,
+					count: parseInt(child.content?.toString() || '0', 10)
+				}
+				ev.emit('newsletter.view', viewUpdate)
+				break
+
+			case 'participant':
+				const participantUpdate = {
+					id: from,
+					author,
+					user: child.attrs.jid!,
+					action: child.attrs.action!,
+					new_role: child.attrs.role!
+				}
+				ev.emit('newsletter-participants.update', participantUpdate)
+				break
+
+			case 'update':
+				const settingsNode = getBinaryNodeChild(child, 'settings')
+				if (settingsNode) {
+					const update: Record<string, any> = {}
+					const nameNode = getBinaryNodeChild(settingsNode, 'name')
+					if (nameNode?.content) update.name = nameNode.content.toString()
+
+					const descriptionNode = getBinaryNodeChild(settingsNode, 'description')
+					if (descriptionNode?.content) update.description = descriptionNode.content.toString()
+
+					ev.emit('newsletter-settings.update', {
+						id: from,
+						update
+					})
+				}
+
+				break
+
+			case 'message':
+				const plaintextNode = getBinaryNodeChild(child, 'plaintext')
+				if (plaintextNode?.content) {
+					try {
+						const contentBuf =
+							typeof plaintextNode.content === 'string'
+								? Buffer.from(plaintextNode.content, 'binary')
+								: Buffer.from(plaintextNode.content as Uint8Array)
+						const messageProto = proto.Message.decode(contentBuf)
+						const fullMessage: ProtoType.WebMessageInfo = proto.WebMessageInfo.create({
+							key: {
+								remoteJid: from,
+								id: child.attrs.message_id || child.attrs.server_id,
+								fromMe: false
+							},
+							message: messageProto,
+							messageTimestamp: +child.attrs.t!
+						})
+						await upsertMessage(fullMessage as WAMessage, 'append')
+						logger.info('Processed plaintext newsletter message')
+					} catch (error) {
+						logger.error({ error }, 'Failed to decode plaintext newsletter message')
+					}
+				}
+
+				break
+
+			default:
+				logger.warn({ node }, 'Unknown newsletter notification')
+				break
+		}
+	}
 
 	const sendMessageAck = async ({ tag, attrs, content }: BinaryNode, errorCode?: number) => {
 		const stanza: BinaryNode = {
@@ -169,23 +384,81 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		const { key: msgKey } = fullMessage
 		const msgId = msgKey.id!
 
-		const key = `${msgId}:${msgKey?.participant}`
-		let retryCount = msgRetryCache.get<number>(key) || 0
-		if (retryCount >= maxMsgRetryCount) {
-			logger.debug({ retryCount, msgId }, 'reached retry limit, clearing')
-			msgRetryCache.del(key)
-			return
+		if (messageRetryManager) {
+			// Check if we've exceeded max retries using the new system
+			if (messageRetryManager.hasExceededMaxRetries(msgId)) {
+				logger.debug({ msgId }, 'reached retry limit with new retry manager, clearing')
+				messageRetryManager.markRetryFailed(msgId)
+				return
+			}
+
+			// Increment retry count using new system
+			const retryCount = messageRetryManager.incrementRetryCount(msgId)
+
+			// Use the new retry count for the rest of the logic
+			const key = `${msgId}:${msgKey?.participant}`
+			msgRetryCache.set(key, retryCount)
+		} else {
+			// Fallback to old system
+			const key = `${msgId}:${msgKey?.participant}`
+			let retryCount = msgRetryCache.get<number>(key) || 0
+			if (retryCount >= maxMsgRetryCount) {
+				logger.debug({ retryCount, msgId }, 'reached retry limit, clearing')
+				msgRetryCache.del(key)
+				return
+			}
+
+			retryCount += 1
+			msgRetryCache.set(key, retryCount)
 		}
 
-		retryCount += 1
-		msgRetryCache.set(key, retryCount)
+		const key = `${msgId}:${msgKey?.participant}`
+		const retryCount = msgRetryCache.get<number>(key) || 1
 
 		const { account, signedPreKey, signedIdentityKey: identityKey } = authState.creds
+		const fromJid = node.attrs.from!
+
+		// Check if we should recreate the session
+		let shouldRecreateSession = false
+		let recreateReason = ''
+
+		if (enableAutoSessionRecreation && messageRetryManager) {
+			try {
+				// Check if we have a session with this JID
+				const sessionId = signalRepository.jidToSignalProtocolAddress(fromJid)
+				const hasSession = await signalRepository.validateSession(fromJid)
+				const result = messageRetryManager.shouldRecreateSession(fromJid, retryCount, hasSession.exists)
+				shouldRecreateSession = result.recreate
+				recreateReason = result.reason
+
+				if (shouldRecreateSession) {
+					logger.info({ fromJid, retryCount, reason: recreateReason }, 'recreating session for retry')
+					// Delete existing session to force recreation
+					await authState.keys.set({ session: { [sessionId]: null } })
+					forceIncludeKeys = true
+				}
+			} catch (error) {
+				logger.warn({ error, fromJid }, 'failed to check session recreation')
+			}
+		}
 
 		if (retryCount <= 2) {
-			//request a resend via phone
-			const msgId = await requestPlaceholderResend(msgKey)
-			logger.debug(`sendRetryRequest: requested placeholder resend for message ${msgId}`)
+			// Use new retry manager for phone requests if available
+			if (messageRetryManager) {
+				// Schedule phone request with delay (like whatsmeow)
+				messageRetryManager.schedulePhoneRequest(msgId, async () => {
+					try {
+						const msgId = await requestPlaceholderResend(msgKey)
+						logger.debug(`sendRetryRequest: requested placeholder resend for message ${msgId} (scheduled)`)
+					} catch (error) {
+						logger.warn({ error, msgId }, 'failed to send scheduled phone request')
+					}
+				})
+			} else {
+				// Fallback to immediate request
+				const msgId = await requestPlaceholderResend(msgKey)
+				logger.debug(`sendRetryRequest: requested placeholder resend for message ${msgId}`)
+			}
 		}
 
 		const deviceIdentity = encodeSignedDeviceIdentity(account!, true)
@@ -223,7 +496,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				receipt.attrs.participant = node.attrs.participant
 			}
 
-			if (retryCount > 1 || forceIncludeKeys) {
+			if (retryCount > 1 || forceIncludeKeys || shouldRecreateSession) {
 				const { update, preKeys } = await getNextPreKeys(authState, 1)
 
 				const [keyId] = Object.keys(preKeys)
@@ -274,8 +547,9 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const handleGroupNotification = (participant: string, child: BinaryNode, msg: Partial<proto.IWebMessageInfo>) => {
+	const handleGroupNotification = (participant: string, child: BinaryNode, msg: Partial<ProtoType.IWebMessageInfo>) => {
 		const participantJid = getBinaryNodeChild(child, 'participant')?.attrs?.jid || participant
+		// TODO: Add participant LID
 		switch (child?.tag) {
 			case 'create':
 				const metadata = extractGroupMetadata(child)
@@ -385,7 +659,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	}
 
 	const processNotification = async (node: BinaryNode) => {
-		const result: Partial<proto.IWebMessageInfo> = {}
+		const result: Partial<ProtoType.IWebMessageInfo> = {}
 		const [child] = getAllBinaryNodeChildren(node)
 		const nodeType = node.attrs.type
 		const from = jidNormalizedUser(node.attrs.from)
@@ -424,10 +698,15 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				break
 			case 'devices':
 				const devices = getBinaryNodeChildren(child, 'device')
-				if (areJidsSameUser(child!.attrs.jid, authState.creds.me!.id)) {
-					const deviceJids = devices.map(d => d.attrs.jid)
-					logger.info({ deviceJids }, 'got my own devices')
+				if (
+					areJidsSameUser(child!.attrs.jid, authState.creds.me!.id) ||
+					areJidsSameUser(child!.attrs.lid, authState.creds.me!.lid)
+				) {
+					const deviceData = devices.map(d => ({ id: d.attrs.jid, lid: d.attrs.lid }))
+					logger.info({ deviceData }, 'my own devices changed')
 				}
+
+				//TODO: drop a new event, add hashes
 
 				break
 			case 'server_sync':
@@ -587,7 +866,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const willSendMessageAgain = (id: string, participant: string) => {
 		const key = `${id}:${participant}`
 		const retryCount = msgRetryCache.get<number>(key) || 0
-		return retryCount < maxMsgRetryCount
+		return retryCount <= maxMsgRetryCount
 	}
 
 	const updateSendMessageAgainCount = (id: string, participant: string) => {
@@ -596,26 +875,84 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		msgRetryCache.set(key, newValue)
 	}
 
-	const sendMessagesAgain = async (key: proto.IMessageKey, ids: string[], retryNode: BinaryNode) => {
-		// todo: implement a cache to store the last 256 sent messages (copy whatsmeow)
-		const msgs = await Promise.all(ids.map(id => getMessage({ ...key, id })))
+	const sendMessagesAgain = async (key: ProtoType.IMessageKey, ids: string[], retryNode: BinaryNode) => {
 		const remoteJid = key.remoteJid!
 		const participant = key.participant || remoteJid
+
+		const retryCount = +retryNode.attrs.count! || 1
+
+		// Try to get messages from cache first, then fallback to getMessage
+		const msgs: (ProtoType.IMessage | undefined)[] = []
+		for (const id of ids) {
+			let msg: ProtoType.IMessage | undefined
+
+			// Try to get from retry cache first if enabled
+			if (messageRetryManager) {
+				const cachedMsg = messageRetryManager.getRecentMessage(remoteJid, id)
+				if (cachedMsg) {
+					msg = cachedMsg.message
+					logger.debug({ jid: remoteJid, id }, 'found message in retry cache')
+
+					// Mark retry as successful since we found the message
+					messageRetryManager.markRetrySuccess(id)
+				}
+			}
+
+			// Fallback to getMessage if not found in cache
+			if (!msg) {
+				msg = await getMessage({ ...key, id })
+				if (msg) {
+					logger.debug({ jid: remoteJid, id }, 'found message via getMessage')
+					// Also mark as successful if found via getMessage
+					if (messageRetryManager) {
+						messageRetryManager.markRetrySuccess(id)
+					}
+				}
+			}
+
+			msgs.push(msg)
+		}
+
 		// if it's the primary jid sending the request
 		// just re-send the message to everyone
 		// prevents the first message decryption failure
 		const sendToAll = !jidDecode(participant)?.device
-		await assertSessions([participant], true)
+
+		// Check if we should recreate session for this retry
+		let shouldRecreateSession = false
+		let recreateReason = ''
+
+		if (enableAutoSessionRecreation && messageRetryManager) {
+			try {
+				const sessionId = signalRepository.jidToSignalProtocolAddress(participant)
+
+				const hasSession = await signalRepository.validateSession(participant)
+				const result = messageRetryManager.shouldRecreateSession(participant, retryCount, hasSession.exists)
+				shouldRecreateSession = result.recreate
+				recreateReason = result.reason
+
+				if (shouldRecreateSession) {
+					logger.info({ participant, retryCount, reason: recreateReason }, 'recreating session for outgoing retry')
+					await authState.keys.set({ session: { [sessionId]: null } })
+				}
+			} catch (error) {
+				logger.warn({ error, participant }, 'failed to check session recreation for outgoing retry')
+			}
+		}
+
+		await assertSessions([participant], shouldRecreateSession)
 
 		if (isJidGroup(remoteJid)) {
 			await authState.keys.set({ 'sender-key-memory': { [remoteJid]: null } })
 		}
 
-		logger.debug({ participant, sendToAll }, 'forced new session for retry recp')
+		logger.debug({ participant, sendToAll, shouldRecreateSession, recreateReason }, 'forced new session for retry recp')
 
 		for (const [i, msg] of msgs.entries()) {
-			if (msg) {
-				updateSendMessageAgainCount(ids[i]!, participant)
+			if (!ids[i]) continue
+
+			if (msg && willSendMessageAgain(ids[i], participant)) {
+				updateSendMessageAgainCount(ids[i], participant)
 				const msgRelayOpts: MessageRelayOptions = { messageId: ids[i] }
 
 				if (sendToAll) {
@@ -644,7 +981,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		const remoteJid = !isNodeFromMe || isJidGroup(attrs.from) ? attrs.from : attrs.recipient
 		const fromMe = !attrs.recipient || ((attrs.type === 'retry' || attrs.type === 'sender') && isNodeFromMe)
 
-		const key: proto.IMessageKey = {
+		const key: ProtoType.IMessageKey = {
 			remoteJid,
 			id: '',
 			fromMe,
@@ -703,13 +1040,17 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 						// correctly set who is asking for the retry
 						key.participant = key.participant || attrs.from
 						const retryNode = getBinaryNodeChild(node, 'retry')
-						if (willSendMessageAgain(ids[0]!, key.participant!)) {
+						if (ids[0] && key.participant && willSendMessageAgain(ids[0], key.participant)) {
 							if (key.fromMe) {
 								try {
+									updateSendMessageAgainCount(ids[0], key.participant)
 									logger.debug({ attrs, key }, 'recv retry request')
 									await sendMessagesAgain(key, ids, retryNode!)
-								} catch (error: any) {
-									logger.error({ key, ids, trace: error.stack }, 'error in sending message again')
+								} catch (error: unknown) {
+									logger.error(
+										{ key, ids, trace: error instanceof Error ? error.stack : 'Unknown error' },
+										'error in sending message again'
+									)
 								}
 							} else {
 								logger.info({ attrs, key }, 'recv retry for not fromMe message')
@@ -749,8 +1090,8 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 						msg.participant ??= node.attrs.participant
 						msg.messageTimestamp = +node.attrs.t!
 
-						const fullMsg = proto.WebMessageInfo.fromObject(msg)
-						await upsertMessage(fullMsg, 'append')
+						const fullMsg = proto.WebMessageInfo.create(msg as ProtoType.IWebMessageInfo)
+						await upsertMessage(fullMsg as WAMessage, 'append')
 					}
 				})
 			])
@@ -771,7 +1112,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		// TODO: temporary fix for crashes and issues resulting of failed msmsg decryption
 		if (encNode && encNode.attrs.type === 'msmsg') {
 			logger.debug({ key: node.attrs.key }, 'ignored msmsg')
-			await sendMessageAck(node)
+			await sendMessageAck(node, NACK_REASONS.MissingMessageSecret)
 			return
 		}
 
@@ -807,7 +1148,37 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			msg.message?.protocolMessage?.type === proto.Message.ProtocolMessage.Type.SHARE_PHONE_NUMBER &&
 			node.attrs.sender_pn
 		) {
-			ev.emit('chats.phoneNumberShare', { lid: node.attrs.from!, jid: node.attrs.sender_pn })
+			const lid = jidNormalizedUser(node.attrs.from),
+				pn = jidNormalizedUser(node.attrs.sender_pn)
+			ev.emit('lid-mapping.update', { lid, pn })
+			await signalRepository.storeLIDPNMapping(lid, pn)
+		}
+
+		const alt = msg.key.participantAlt || msg.key.remoteJidAlt
+		// store new mappings we didn't have before
+		if (!!alt) {
+			const altServer = jidDecode(alt)?.server
+			const lidMapping = signalRepository.getLIDMappingStore()
+			if (altServer === 'lid') {
+				if (typeof await lidMapping.getPNForLID(alt) == "string") {
+					await lidMapping.storeLIDPNMapping(alt, msg.key.participant || msg.key.remoteJid!)
+				}
+			} else {
+				if (typeof await lidMapping.getLIDForPN(alt) == "string") {
+					await lidMapping.storeLIDPNMapping(msg.key.participant || msg.key.remoteJid!, alt)
+				}
+			}
+		}
+
+		if (msg.key?.remoteJid && msg.key?.id && messageRetryManager) {
+			messageRetryManager.addRecentMessage(msg.key.remoteJid, msg.key.id, msg.message!)
+			logger.debug(
+				{
+					jid: msg.key.remoteJid,
+					id: msg.key.id
+				},
+				'Added message to recent cache for retry receipts'
+			)
 		}
 
 		try {
@@ -820,10 +1191,36 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 							return sendMessageAck(node, NACK_REASONS.ParsingError)
 						}
 
+						const errorMessage = msg?.messageStubParameters?.[0] || ''
+						const isPreKeyError = errorMessage.includes('PreKey')
+
+						logger.debug(`[handleMessage] Attempting retry request for failed decryption`)
+
+						// Handle both pre-key and normal retries in single mutex
 						retryMutex.mutex(async () => {
-							if (ws.isOpen) {
-								if (getBinaryNodeChild(node, 'unavailable')) {
+							try {
+								if (!ws.isOpen) {
+									logger.debug({ node }, 'Connection closed, skipping retry')
 									return
+								}
+
+								if (getBinaryNodeChild(node, 'unavailable')) {
+									logger.debug('Message unavailable, skipping retry')
+									return
+								}
+
+								// Handle pre-key errors with upload and delay
+								if (isPreKeyError) {
+									logger.info({ error: errorMessage }, 'PreKey error detected, uploading and retrying')
+
+									try {
+										logger.debug('Uploading pre-keys for error recovery')
+										await uploadPreKeys(5)
+										logger.debug('Waiting for server to process new pre-keys')
+										await delay(1000)
+									} catch (uploadErr) {
+										logger.error({ uploadErr }, 'Pre-key upload failed, proceeding with retry anyway')
+									}
 								}
 
 								const encNode = getBinaryNodeChild(node, 'enc')
@@ -831,8 +1228,15 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 								if (retryRequestDelayMs) {
 									await delay(retryRequestDelayMs)
 								}
-							} else {
-								logger.debug({ node }, 'connection closed, ignoring retry req')
+							} catch (err) {
+								logger.error({ err, isPreKeyError }, 'Failed to handle retry, attempting basic retry')
+								// Still attempt retry even if pre-key upload failed
+								try {
+									const encNode = getBinaryNodeChild(node, 'enc')
+									await sendRetryRequest(node, !encNode)
+								} catch (retryErr) {
+									logger.error({ retryErr }, 'Failed to send retry after error handling')
+								}
 							}
 						})
 					} else {
@@ -846,8 +1250,8 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 							// message was sent by us from a different device
 							type = 'sender'
 							// need to specially handle this case
-							if (isJidUser(msg.key.remoteJid!)) {
-								participant = author
+							if (isLidUser(msg.key.remoteJid!) || isLidUser(msg.key.remoteJidAlt)) {
+								participant = author // TODO: investigate sending receipts to LIDs and not PNs
 							}
 						} else if (!sendActiveReceipts) {
 							type = 'inactive'
@@ -873,67 +1277,6 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		} catch (error) {
 			logger.error({ error, node }, 'error in handling message')
 		}
-	}
-
-	const fetchMessageHistory = async (
-		count: number,
-		oldestMsgKey: WAMessageKey,
-		oldestMsgTimestamp: number | Long
-	): Promise<string> => {
-		if (!authState.creds.me?.id) {
-			throw new Boom('Not authenticated')
-		}
-
-		const pdoMessage: proto.Message.IPeerDataOperationRequestMessage = {
-			historySyncOnDemandRequest: {
-				chatJid: oldestMsgKey.remoteJid,
-				oldestMsgFromMe: oldestMsgKey.fromMe,
-				oldestMsgId: oldestMsgKey.id,
-				oldestMsgTimestampMs: oldestMsgTimestamp,
-				onDemandMsgCount: count
-			},
-			peerDataOperationRequestType: proto.Message.PeerDataOperationRequestType.HISTORY_SYNC_ON_DEMAND
-		}
-
-		return sendPeerDataOperationMessage(pdoMessage)
-	}
-
-	const requestPlaceholderResend = async (messageKey: WAMessageKey): Promise<string | undefined> => {
-		if (!authState.creds.me?.id) {
-			throw new Boom('Not authenticated')
-		}
-
-		if (placeholderResendCache.get(messageKey?.id!)) {
-			logger.debug({ messageKey }, 'already requested resend')
-			return
-		} else {
-			placeholderResendCache.set(messageKey?.id!, true)
-		}
-
-		await delay(5000)
-
-		if (!placeholderResendCache.get(messageKey?.id!)) {
-			logger.debug({ messageKey }, 'message received while resend requested')
-			return 'RESOLVED'
-		}
-
-		const pdoMessage = {
-			placeholderMessageResendRequest: [
-				{
-					messageKey
-				}
-			],
-			peerDataOperationRequestType: proto.Message.PeerDataOperationRequestType.PLACEHOLDER_MESSAGE_RESEND
-		}
-
-		setTimeout(() => {
-			if (placeholderResendCache.get(messageKey?.id!)) {
-				logger.debug({ messageKey }, 'PDO message without response after 15 seconds. Phone possibly offline')
-				placeholderResendCache.del(messageKey?.id!)
-			}
-		}, 15_000)
-
-		return sendPeerDataOperationMessage(pdoMessage)
 	}
 
 	const handleCall = async (node: BinaryNode) => {
@@ -1114,158 +1457,6 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
-	// Handles newsletter notifications
-	async function handleNewsletterNotification(node: BinaryNode) {
-		const from = node.attrs.from!
-		const child = getAllBinaryNodeChildren(node)[0]!
-		const author = node.attrs.participant!
-
-		logger.info({ from, child }, 'got newsletter notification')
-
-		switch (child.tag) {
-			case 'reaction':
-				const reactionUpdate = {
-					id: from,
-					server_id: child.attrs.message_id!,
-					reaction: {
-						code: getBinaryNodeChildString(child, 'reaction'),
-						count: 1
-					}
-				}
-				ev.emit('newsletter.reaction', reactionUpdate)
-				break
-
-			case 'view':
-				const viewUpdate = {
-					id: from,
-					server_id: child.attrs.message_id!,
-					count: parseInt(child.content?.toString() || '0', 10)
-				}
-				ev.emit('newsletter.view', viewUpdate)
-				break
-
-			case 'participant':
-				const participantUpdate = {
-					id: from,
-					author,
-					user: child.attrs.jid!,
-					action: child.attrs.action!,
-					new_role: child.attrs.role!
-				}
-				ev.emit('newsletter-participants.update', participantUpdate)
-				break
-
-			case 'update':
-				const settingsNode = getBinaryNodeChild(child, 'settings')
-				if (settingsNode) {
-					const update: Record<string, any> = {}
-					const nameNode = getBinaryNodeChild(settingsNode, 'name')
-					if (nameNode?.content) update.name = nameNode.content.toString()
-
-					const descriptionNode = getBinaryNodeChild(settingsNode, 'description')
-					if (descriptionNode?.content) update.description = descriptionNode.content.toString()
-
-					ev.emit('newsletter-settings.update', {
-						id: from,
-						update
-					})
-				}
-
-				break
-
-			case 'message':
-				const plaintextNode = getBinaryNodeChild(child, 'plaintext')
-				if (plaintextNode?.content) {
-					try {
-						const contentBuf =
-							typeof plaintextNode.content === 'string'
-								? Buffer.from(plaintextNode.content, 'binary')
-								: Buffer.from(plaintextNode.content as Uint8Array)
-						const messageProto = proto.Message.decode(contentBuf)
-						const fullMessage = proto.WebMessageInfo.fromObject({
-							key: {
-								remoteJid: from,
-								id: child.attrs.message_id || child.attrs.server_id,
-								fromMe: false
-							},
-							message: messageProto,
-							messageTimestamp: +child.attrs.t!
-						})
-						await upsertMessage(fullMessage, 'append')
-						logger.info('Processed plaintext newsletter message')
-					} catch (error) {
-						logger.error({ error }, 'Failed to decode plaintext newsletter message')
-					}
-				}
-
-				break
-
-			default:
-				logger.warn({ node }, 'Unknown newsletter notification')
-				break
-		}
-	}
-
-	// Handles mex newsletter notifications
-	async function handleMexNewsletterNotification(node: BinaryNode) {
-		const mexNode = getBinaryNodeChild(node, 'mex')
-		if (!mexNode?.content) {
-			logger.warn({ node }, 'Invalid mex newsletter notification')
-			return
-		}
-
-		let data: any
-		try {
-			data = JSON.parse(mexNode.content.toString())
-		} catch (error) {
-			logger.error({ err: error, node }, 'Failed to parse mex newsletter notification')
-			return
-		}
-
-		const operation = data?.operation
-		const updates = data?.updates
-
-		if (!updates || !operation) {
-			logger.warn({ data }, 'Invalid mex newsletter notification content')
-			return
-		}
-
-		logger.info({ operation, updates }, 'got mex newsletter notification')
-
-		switch (operation) {
-			case 'NotificationNewsletterUpdate':
-				for (const update of updates) {
-					if (update.jid && update.settings && Object.keys(update.settings).length > 0) {
-						ev.emit('newsletter-settings.update', {
-							id: update.jid,
-							update: update.settings
-						})
-					}
-				}
-
-				break
-
-			case 'NotificationNewsletterAdminPromote':
-				for (const update of updates) {
-					if (update.jid && update.user) {
-						ev.emit('newsletter-participants.update', {
-							id: update.jid,
-							author: node.attrs.from!,
-							user: update.user,
-							new_role: 'ADMIN',
-							action: 'promote'
-						})
-					}
-				}
-
-				break
-
-			default:
-				logger.info({ operation, data }, 'Unhandled mex newsletter notification')
-				break
-		}
-	}
-
 	// recv a message
 	ws.on('CB:message', (node: BinaryNode) => {
 		processNode('message', node, 'processing message', handleMessage)
@@ -1293,7 +1484,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 		// missed call + group call notification message generation
 		if (call.status === 'timeout' || (call.status === 'offer' && call.isGroup)) {
-			const msg: proto.IWebMessageInfo = {
+			const msg: ProtoType.IWebMessageInfo = {
 				key: {
 					remoteJid: call.chatId,
 					id: call.id,
@@ -1313,8 +1504,8 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				msg.message = { call: { callKey: Buffer.from(call.id) } }
 			}
 
-			const protoMsg = proto.WebMessageInfo.fromObject(msg)
-			upsertMessage(protoMsg, call.offline ? 'append' : 'notify')
+			const protoMsg = proto.WebMessageInfo.create(msg)
+			upsertMessage(protoMsg as WAMessage, call.offline ? 'append' : 'notify')
 		}
 	})
 
@@ -1331,6 +1522,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		sendRetryRequest,
 		rejectCall,
 		fetchMessageHistory,
-		requestPlaceholderResend
+		requestPlaceholderResend,
+		messageRetryManager
 	}
 }

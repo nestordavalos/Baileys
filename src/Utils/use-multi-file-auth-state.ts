@@ -1,10 +1,10 @@
 import { Mutex } from 'async-mutex'
 import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { proto } from '../../WAProto/index.js'
 import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types'
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
+import { proto } from '../WAProto'
 
 // We need to lock files due to the fact that we are using async functions to read and write files
 // https://github.com/WhiskeySockets/Baileys/issues/794
@@ -78,10 +78,10 @@ export const useMultiFileAuthState = async (
 					release()
 				}
 			})
-		} catch {}
+		} catch { }
 	}
 
-	const folderInfo = await stat(folder).catch(() => {})
+	const folderInfo = await stat(folder).catch(() => { })
 	if (folderInfo) {
 		if (!folderInfo.isDirectory()) {
 			throw new Error(
@@ -106,7 +106,7 @@ export const useMultiFileAuthState = async (
 						ids.map(async id => {
 							let value = await readData(`${type}-${id}.json`)
 							if (type === 'app-state-sync-key' && value) {
-								value = proto.Message.AppStateSyncKeyData.fromObject(value)
+								value = proto.Message.AppStateSyncKeyData.create(value)
 							}
 
 							data[id] = value

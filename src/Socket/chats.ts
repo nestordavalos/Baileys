@@ -1,6 +1,5 @@
 import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
-import { proto } from '../../WAProto/index.js'
 import { DEFAULT_CACHE_TTLS, PROCESSABLE_HISTORY_TYPES } from '../Defaults'
 import type {
 	BotListInfo,
@@ -26,6 +25,7 @@ import type {
 	WAReadReceiptsValue
 } from '../Types'
 import { ALL_WA_PATCH_NAMES } from '../Types'
+import type { QuickReplyAction } from '../Types/Bussines.js'
 import type { LabelActionBody } from '../Types/Label'
 import { SyncState } from '../Types/State'
 import {
@@ -52,7 +52,9 @@ import {
 	S_WHATSAPP_NET
 } from '../WABinary'
 import { USyncQuery, USyncUser } from '../WAUSync'
-import { makeUSyncSocket } from './usync'
+import { makeSocket } from './socket.js'
+import { proto, type ProtoType } from '../WAProto'
+
 const MAX_SYNC_ATTEMPTS = 2
 
 export const makeChatsSocket = (config: SocketConfig) => {
@@ -64,8 +66,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		shouldIgnoreJid,
 		shouldSyncHistoryMessage
 	} = config
-	const sock = makeUSyncSocket(config)
-	const { ev, ws, authState, generateMessageTag, sendNode, query, onUnexpectedError } = sock
+	const sock = makeSocket(config)
+	const { ev, ws, authState, generateMessageTag, sendNode, query, signalRepository, onUnexpectedError } = sock
 
 	let privacySettings: { [_: string]: string } | undefined
 
@@ -218,21 +220,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}
 
 		return botList
-	}
-
-	const onWhatsApp = async (...jids: string[]) => {
-		const usyncQuery = new USyncQuery().withContactProtocol().withLIDProtocol()
-
-		for (const jid of jids) {
-			const phone = `+${jid.replace('+', '').split('@')[0]?.split(':')[0]}`
-			usyncQuery.withUser(new USyncUser().withPhone(phone))
-		}
-
-		const results = await sock.executeUSyncQuery(usyncQuery)
-
-		if (results) {
-			return results.list.filter(a => !!a.contact).map(({ contact, id, lid }) => ({ jid: id, exists: contact, lid }))
-		}
 	}
 
 	const fetchStatus = async (...jids: string[]) => {
@@ -633,6 +620,28 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		return child?.attrs?.url
 	}
 
+	const createCallLink = async (type: 'audio' | 'video', event?: { startTime: number }, timeoutMs?: number) => {
+		const result = await query(
+			{
+				tag: 'call',
+				attrs: {
+					id: generateMessageTag(),
+					to: '@call'
+				},
+				content: [
+					{
+						tag: 'link_create',
+						attrs: { media: type },
+						content: event ? [{ tag: 'event', attrs: { start_time: String(event.startTime) } }] : undefined
+					}
+				]
+			},
+			timeoutMs
+		)
+		const child = getBinaryNodeChild(result, 'link_create')
+		return child?.attrs?.token
+	}
+
 	const sendPresenceUpdate = async (type: WAPresence, toJid?: string) => {
 		const me = authState.creds.me!
 		if (type === 'available' || type === 'unavailable') {
@@ -684,12 +693,12 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			},
 			content: tcToken
 				? [
-						{
-							tag: 'tctoken',
-							attrs: {},
-							content: tcToken
-						}
-					]
+					{
+						tag: 'tctoken',
+						attrs: {},
+						content: tcToken
+					}
+				]
 				: undefined
 		})
 
@@ -736,7 +745,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}
 
 		let initial: LTHashState
-		let encodeResult: { patch: proto.ISyncdPatch; state: LTHashState }
+		let encodeResult: { patch: ProtoType.ISyncdPatch; state: LTHashState }
 
 		await processingMutex.mutex(async () => {
 			await authState.keys.transaction(async () => {
@@ -882,7 +891,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	/**
 	 * Add or Edit Contact
 	 */
-	const addOrEditContact = (jid: string, contact: proto.SyncActionValue.IContactAction) => {
+	const addOrEditContact = (jid: string, contact: ProtoType.SyncActionValue.IContactAction) => {
 		return chatModify(
 			{
 				contact
@@ -976,6 +985,30 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	}
 
 	/**
+	 * Add or Edit Quick Reply
+	 */
+	const addOrEditQuickReply = (quickReply: QuickReplyAction) => {
+		return chatModify(
+			{
+				quickReply
+			},
+			''
+		)
+	}
+
+	/**
+	 * Remove Quick Reply
+	 */
+	const removeQuickReply = (timestamp: string) => {
+		return chatModify(
+			{
+				quickReply: { timestamp, deleted: true }
+			},
+			''
+		)
+	}
+
+	/**
 	 * queries need to be fired on connection open
 	 * help ensure parity with WA Web
 	 * */
@@ -987,15 +1020,15 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		ev.emit('messages.upsert', { messages: [msg], type })
 
 		if (!!msg.pushName) {
-			let jid = msg.key.fromMe ? authState.creds.me!.id : msg.key.participant || msg.key.remoteJid
+			let jid = msg.key?.fromMe ? authState.creds.me!.id : msg?.key?.participant || msg.key?.remoteJid
 			jid = jidNormalizedUser(jid!)
 
-			if (!msg.key.fromMe) {
+			if (!msg.key?.fromMe) {
 				ev.emit('contacts.update', [{ id: jid, notify: msg.pushName, verifiedName: msg.verifiedBizName! }])
 			}
 
 			// update our pushname too
-			if (msg.key.fromMe && msg.pushName && authState.creds.me?.name !== msg.pushName) {
+			if (msg.key?.fromMe && msg.pushName && authState.creds.me?.name !== msg.pushName) {
 				ev.emit('creds.update', { me: { ...authState.creds.me!, name: msg.pushName } })
 			}
 		}
@@ -1045,6 +1078,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 				}
 			})(),
 			processMessage(msg, {
+				signalRepository,
 				shouldProcessHistoryMsg,
 				placeholderResendCache,
 				ev,
@@ -1110,7 +1144,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		ev.buffer()
 
 		const willSyncHistory = shouldSyncHistoryMessage(
-			proto.Message.HistorySyncNotification.fromObject({
+			proto.Message.HistorySyncNotification.create({
 				syncType: proto.HistorySync.HistorySyncType.RECENT
 			})
 		)
@@ -1139,6 +1173,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 
 	return {
 		...sock,
+		createCallLink,
 		getBotListV2,
 		processingMutex,
 		fetchPrivacySettings,
@@ -1147,7 +1182,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		sendPresenceUpdate,
 		presenceSubscribe,
 		profilePictureUrl,
-		onWhatsApp,
 		fetchBlocklist,
 		fetchStatus,
 		fetchDisappearingDuration,
@@ -1177,6 +1211,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		removeChatLabel,
 		addMessageLabel,
 		removeMessageLabel,
-		star
+		star,
+		addOrEditQuickReply,
+		removeQuickReply
 	}
 }

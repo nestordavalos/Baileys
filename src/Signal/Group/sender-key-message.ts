@@ -1,13 +1,6 @@
-/* @ts-ignore */
-import { calculateSignature, verifySignature } from 'libsignal/src/curve'
-import { proto } from '../../../WAProto/index.js'
+import libsignal from '@raphaelvserafim/libsignal'
+import { proto } from '../../WAProto'
 import { CiphertextMessage } from './ciphertext-message'
-
-interface SenderKeyMessageStructure {
-	id: number
-	iteration: number
-	ciphertext: string | Buffer
-}
 
 export class SenderKeyMessage extends CiphertextMessage {
 	private readonly SIGNATURE_LENGTH = 64
@@ -31,7 +24,7 @@ export class SenderKeyMessage extends CiphertextMessage {
 			const version = serialized[0]!
 			const message = serialized.slice(1, serialized.length - this.SIGNATURE_LENGTH)
 			const signature = serialized.slice(-1 * this.SIGNATURE_LENGTH)
-			const senderKeyMessage = proto.SenderKeyMessage.decode(message).toJSON() as SenderKeyMessageStructure
+			const senderKeyMessage = proto.SenderKeyMessage.decode(message)
 
 			this.serialized = serialized
 			this.messageVersion = (version & 0xff) >> 4
@@ -79,12 +72,12 @@ export class SenderKeyMessage extends CiphertextMessage {
 	public verifySignature(signatureKey: Uint8Array): void {
 		const part1 = this.serialized.slice(0, this.serialized.length - this.SIGNATURE_LENGTH)
 		const part2 = this.serialized.slice(-1 * this.SIGNATURE_LENGTH)
-		const res = verifySignature(signatureKey, part1, part2)
+		const res = libsignal.curve.verifySignature(signatureKey, part1, part2)
 		if (!res) throw new Error('Invalid signature!')
 	}
 
 	private getSignature(signatureKey: Uint8Array, serialized: Uint8Array): Uint8Array {
-		return Buffer.from(calculateSignature(signatureKey, serialized))
+		return Buffer.from(libsignal.curve.calculateSignature(signatureKey, serialized))
 	}
 
 	public serialize(): Uint8Array {
