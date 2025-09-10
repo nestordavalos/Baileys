@@ -1,6 +1,6 @@
 import { Boom } from '@hapi/boom'
-import { type BinaryNode } from './types'
 import { proto, type ProtoType } from '../WAProto'
+import { type BinaryNode } from './types'
 
 export const getBinaryNodeChildren = (node: BinaryNode | undefined, childTag: string) => {
 	if (Array.isArray(node?.content)) {

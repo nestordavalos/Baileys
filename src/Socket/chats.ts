@@ -51,9 +51,9 @@ import {
 	reduceBinaryNodeToDictionary,
 	S_WHATSAPP_NET
 } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeSocket } from './socket.js'
-import { proto, type ProtoType } from '../WAProto'
 
 const MAX_SYNC_ATTEMPTS = 2
 

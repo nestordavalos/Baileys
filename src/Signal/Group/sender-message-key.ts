@@ -12,10 +12,12 @@ export class SenderMessageKey {
 		if (!derivative[0]) {
 			throw new Error('derivative[0] is undefined')
 		}
+
 		keys.set(new Uint8Array(derivative[0].slice(16)))
 		if (!derivative[1]) {
 			throw new Error('derivative[1] is undefined')
 		}
+
 		keys.set(new Uint8Array(derivative[1].slice(0, 16)), 16)
 		this.iv = Buffer.from(derivative[0].slice(0, 16))
 		this.cipherKey = Buffer.from(keys.buffer)

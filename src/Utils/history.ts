@@ -3,10 +3,10 @@ import { promisify } from 'util'
 import { inflate } from 'zlib'
 import type { Chat, Contact } from '../Types'
 import { WAMessageStubType } from '../Types'
+import { proto, type ProtoType } from '../WAProto'
 import { toNumber } from './generics'
 import { normalizeMessageContent } from './messages'
 import { downloadContentFromMessage } from './messages-media'
-import { proto, type ProtoType } from '../WAProto'
 
 const inflatePromise = promisify(inflate)
 

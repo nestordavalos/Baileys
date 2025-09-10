@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals'
+/// <reference types="jest" />
 import { proto } from '../..'
 import { DEFAULT_CONNECTION_CONFIG } from '../../Defaults'
 import makeWASocket from '../../Socket'
@@ -31,7 +31,7 @@ describe('Connection Deadlock Test', () => {
 			messageTimestamp: Date.now() / 1000,
 			message: { conversation: 'Hello, world!' }
 		})
-		sock.ev.emit('messages.upsert', { messages: [regularMessage], type: 'notify' })
+		sock.ev.emit('messages.upsert', { messages: [regularMessage as any], type: 'notify' })
 		// Wait for the event loop to process any final events.
 		await new Promise(resolve => setTimeout(resolve, 50))
 

@@ -3,9 +3,9 @@ import { NOISE_MODE, WA_CERT_DETAILS } from '../Defaults'
 import type { KeyPair } from '../Types'
 import type { BinaryNode } from '../WABinary'
 import { decodeBinaryNode } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { aesDecryptGCM, aesEncryptGCM, Curve, hkdf, sha256 } from './crypto'
 import type { ILogger } from './logger'
-import { proto, type ProtoType } from '../WAProto'
 
 const generateIV = (counter: number) => {
 	const iv = new ArrayBuffer(12)

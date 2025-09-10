@@ -3,10 +3,10 @@ import { createHash } from 'crypto'
 import { KEY_BUNDLE_TYPE } from '../Defaults'
 import type { AuthenticationCreds, SignalCreds, SocketConfig } from '../Types'
 import { type BinaryNode, getBinaryNodeChild, jidDecode, S_WHATSAPP_NET } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { Curve, hmacSign } from './crypto'
 import { encodeBigEndian } from './generics'
 import { createSignalIdentity } from './signal'
-import { proto, type ProtoType } from '../WAProto'
 
 const getUserAgent = (config: SocketConfig): ProtoType.ClientPayload.IUserAgent => {
 	return {

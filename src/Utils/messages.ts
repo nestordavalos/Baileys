@@ -27,6 +27,7 @@ import type {
 } from '../Types'
 import { WAMessageStatus } from '../Types'
 import { isJidGroup, isJidNewsletter, isJidStatusBroadcast, jidNormalizedUser } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { sha256 } from './crypto'
 import { generateMessageIDV2, getKeyAuthor, unixTimestampSeconds } from './generics'
 import type { ILogger } from './logger'
@@ -39,7 +40,6 @@ import {
 	getRawMediaUploadData,
 	type MediaDownloadOptions
 } from './messages-media'
-import { proto, type ProtoType } from '../WAProto'
 
 type MediaUploadData = {
 	media: WAMediaUpload
@@ -575,6 +575,7 @@ export const generateWAMessageContent = async (
 			if ('caption' in message) {
 				buttonsMessage.contentText = typeof message.caption === 'string' ? message.caption : ''
 			}
+
 			Object.assign(buttonsMessage, m)
 		}
 
@@ -593,11 +594,14 @@ export const generateWAMessageContent = async (
 			if ('caption' in message) {
 				msg.hydratedContentText = typeof message.caption === 'string' ? message.caption : ''
 			}
+
 			Object.assign(msg, m)
 		}
+
 		if ('footer' in message && typeof message.footer === 'string') {
 			msg.hydratedFooterText = message.footer
 		}
+
 		m = {
 			templateMessage: {
 				fourRowTemplate: msg,

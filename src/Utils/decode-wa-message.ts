@@ -12,9 +12,9 @@ import {
 	isPnUser,
 	transferDevice
 } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { unpadRandomMax16 } from './generics'
 import type { ILogger } from './logger'
-import { proto, type ProtoType } from '../WAProto'
 
 const getDecryptionJid = async (sender: string, repository: SignalRepository): Promise<string> => {
 	if (!sender.includes('@s.whatsapp.net')) {

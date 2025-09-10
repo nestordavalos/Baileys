@@ -55,9 +55,9 @@ import {
 	jidNormalizedUser,
 	S_WHATSAPP_NET
 } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { extractGroupMetadata } from './groups'
 import { makeMessagesSocket } from './messages-send'
-import { proto, type ProtoType } from '../WAProto'
 
 export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const { logger, retryRequestDelayMs, maxMsgRetryCount, getMessage, shouldIgnoreJid, enableAutoSessionRecreation } =
@@ -1160,11 +1160,11 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 			const altServer = jidDecode(alt)?.server
 			const lidMapping = signalRepository.getLIDMappingStore()
 			if (altServer === 'lid') {
-				if (typeof (await lidMapping.getPNForLID(alt)) == 'string') {
+				if (typeof (await lidMapping.getPNForLID(alt)) === 'string') {
 					await lidMapping.storeLIDPNMapping(alt, msg.key.participant || msg.key.remoteJid!)
 				}
 			} else {
-				if (typeof (await lidMapping.getLIDForPN(alt)) == 'string') {
+				if (typeof (await lidMapping.getLIDForPN(alt)) === 'string') {
 					await lidMapping.storeLIDPNMapping(msg.key.participant || msg.key.remoteJid!, alt)
 				}
 			}

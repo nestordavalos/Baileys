@@ -19,12 +19,12 @@ import {
 	type MessageLabelAssociation
 } from '../Types/LabelAssociation'
 import { type BinaryNode, getBinaryNodeChild, getBinaryNodeChildren, isJidGroup, jidNormalizedUser } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { aesDecrypt, aesEncrypt, hkdf, hmacSign } from './crypto'
 import { toNumber } from './generics'
 import type { ILogger } from './logger'
 import { LT_HASH_ANTI_TAMPERING } from './lt-hash'
 import { downloadContentFromMessage } from './messages-media'
-import { proto, type ProtoType } from '../WAProto'
 
 type FetchAppStateSyncKey = (keyId: string) => Promise<ProtoType.Message.IAppStateSyncKeyData | null | undefined>
 

@@ -2,9 +2,9 @@ import { Mutex } from 'async-mutex'
 import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types'
+import { proto } from '../WAProto'
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
-import { proto } from '../WAProto'
 
 // We need to lock files due to the fact that we are using async functions to read and write files
 // https://github.com/WhiskeySockets/Baileys/issues/794

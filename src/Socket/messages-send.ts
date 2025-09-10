@@ -49,9 +49,9 @@ import {
 	S_WHATSAPP_NET,
 	transferDevice
 } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeNewsletterSocket } from './newsletter'
-import { proto, type ProtoType } from '../WAProto'
 
 export const makeMessagesSocket = (config: SocketConfig) => {
 	const {
@@ -1234,6 +1234,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			if (!message?.key) {
 				throw new Boom('Message key is missing', { statusCode: 400 })
 			}
+
 			const node = await encryptMediaRetryRequest(message?.key, mediaKey, meId)
 
 			let error: Error | undefined = undefined

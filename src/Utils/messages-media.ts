@@ -23,10 +23,10 @@ import type {
 	WAMessageContent
 } from '../Types'
 import { type BinaryNode, getBinaryNodeChild, getBinaryNodeChildBuffer, jidNormalizedUser } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { aesDecryptGCM, aesEncryptGCM, hkdf } from './crypto'
 import { generateMessageIDV2 } from './generics'
 import type { ILogger } from './logger'
-import { proto, type ProtoType } from '../WAProto'
 
 const getTmpFilesDirectory = () => tmpdir()
 

@@ -15,11 +15,11 @@ import type {
 import { WAMessageStubType } from '../Types'
 import { getContentType, normalizeMessageContent } from '../Utils/messages'
 import { areJidsSameUser, isJidBroadcast, isJidStatusBroadcast, jidNormalizedUser } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import { aesDecryptGCM, hmacSign } from './crypto'
 import { toNumber } from './generics'
 import { downloadAndProcessHistorySyncNotification } from './history'
 import type { ILogger } from './logger'
-import { proto, type ProtoType } from '../WAProto'
 
 type ProcessMessageContext = {
 	shouldProcessHistoryMsg: boolean
@@ -282,6 +282,7 @@ const processMessage = async (
 							if (!webMessageInfo.key) {
 								webMessageInfo.key = message.key!
 							}
+
 							// wait till another upsert event is available, don't want it to be part of the PDO response message
 							setTimeout(() => {
 								ev.emit('messages.upsert', {

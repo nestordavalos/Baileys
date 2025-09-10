@@ -1,4 +1,5 @@
 import type { Boom } from '@hapi/boom'
+import type { ProtoType } from '../WAProto'
 import type { AuthenticationCreds } from './Auth'
 import type { WACallEvent } from './Call'
 import type { Chat, ChatUpdate, PresenceData } from './Chat'
@@ -8,7 +9,6 @@ import type { Label } from './Label'
 import type { LabelAssociation } from './LabelAssociation'
 import type { MessageUpsertType, MessageUserReceiptUpdate, WAMessage, WAMessageKey, WAMessageUpdate } from './Message'
 import type { ConnectionState } from './State'
-import type { ProtoType } from '../WAProto'
 
 // TODO: refactor this mess
 export type BaileysEventMap = {

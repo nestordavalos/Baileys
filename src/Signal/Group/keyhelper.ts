@@ -1,5 +1,5 @@
-import * as nodeCrypto from 'crypto'
 import * as libsignal from '@raphaelvserafim/libsignal'
+import * as nodeCrypto from 'crypto'
 
 type KeyPairType = ReturnType<typeof libsignal.curve.generateKeyPair>
 

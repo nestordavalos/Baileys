@@ -3,9 +3,9 @@ import type { Readable } from 'stream'
 import type { URL } from 'url'
 import type { MediaType } from '../Defaults'
 import type { BinaryNode } from '../WABinary'
+import { proto, type ProtoType } from '../WAProto'
 import type { GroupMetadata } from './GroupMetadata'
 import type { CacheStore } from './Socket'
-import { proto, type ProtoType } from '../WAProto'
 
 // export the WAMessage Prototypes
 export type WAMessage = ProtoType.IWebMessageInfo & { key: WAMessageKey }

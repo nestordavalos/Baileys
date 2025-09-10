@@ -10,11 +10,11 @@ import type {
 	WAMessage
 } from '../Types'
 import { WAMessageStatus } from '../Types'
+import type { ProtoType } from '../WAProto'
 import { trimUndefined } from './generics'
 import type { ILogger } from './logger'
 import { updateMessageWithReaction, updateMessageWithReceipt } from './messages'
 import { isRealMessage, shouldIncrementChatUnread } from './process-message'
-import type { ProtoType } from '../WAProto'
 
 const BUFFERABLE_EVENT = [
 	'messaging-history.set',
@@ -245,6 +245,7 @@ function append<E extends BufferableEvent>(
 					console.warn('chat without id in history set')
 					continue
 				}
+
 				const existingChat = data.historySets.chats[chat?.id]
 				if (existingChat) {
 					existingChat.endOfHistoryTransferType = chat.endOfHistoryTransferType
@@ -294,6 +295,7 @@ function append<E extends BufferableEvent>(
 					console.warn('chat without id in history set')
 					continue
 				}
+
 				let upsert = data.chatUpserts[chat.id]
 				if (!upsert) {
 					upsert = data.historySets.chats[chat.id]
@@ -534,6 +536,7 @@ function append<E extends BufferableEvent>(
 			console.warn('chat without id in chat update')
 			return
 		}
+
 		const update = data.chatUpdates[chatId]
 		if (update) {
 			const conditionMatches = update.conditional ? update.conditional(data) : true
