@@ -1,7 +1,13 @@
 import { Boom } from '@hapi/boom'
 import { createHash } from 'crypto'
 import { proto } from '../../WAProto/index.js'
-import { KEY_BUNDLE_TYPE } from '../Defaults'
+import {
+	KEY_BUNDLE_TYPE,
+	WA_ADV_ACCOUNT_SIG_PREFIX,
+	WA_ADV_DEVICE_SIG_PREFIX,
+	WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX,
+	WA_ADV_HOSTED_DEVICE_SIG_PREFIX
+} from '../Defaults'
 import type { AuthenticationCreds, SignalCreds, SocketConfig } from '../Types'
 import { type BinaryNode, getBinaryNodeChild, jidDecode, S_WHATSAPP_NET } from '../WABinary'
 import { Curve, hmacSign } from './crypto'
@@ -140,9 +146,12 @@ export const configureSuccessfulPairing = (
 		proto.ADVSignedDeviceIdentityHMAC,
 		deviceIdentityNode.content as Buffer
 	)
-	const isHostedAccount = accountType !== undefined && accountType === proto.ADVEncryptionType.HOSTED
 
-	const hmacPrefix = isHostedAccount ? Buffer.from([6, 5]) : Buffer.alloc(0)
+	let hmacPrefix = Buffer.from([])
+	if (accountType !== undefined && accountType === proto.ADVEncryptionType.HOSTED) {
+		hmacPrefix = WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX
+	}
+
 	const advSign = hmacSign(Buffer.concat([hmacPrefix, details]), Buffer.from(advSecretKey, 'base64'))
 	if (Buffer.compare(hmac, advSign) !== 0) {
 		throw new Boom('Invalid account signature')
@@ -150,19 +159,20 @@ export const configureSuccessfulPairing = (
 
 	const account = decodeAndHydrate(proto.ADVSignedDeviceIdentity, details)
 	const { accountSignatureKey, accountSignature, details: deviceDetails } = account
-	const accountMsg = Buffer.concat([Buffer.from([6, 0]), deviceDetails, signedIdentityKey.public])
+
+	const deviceIdentity = decodeAndHydrate(proto.ADVDeviceIdentity, deviceDetails)
+
+	const accountSignaturePrefix = deviceIdentity.deviceType == proto.ADVEncryptionType.HOSTED ? WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX : WA_ADV_ACCOUNT_SIG_PREFIX
+	const accountMsg = Buffer.concat([accountSignaturePrefix, deviceDetails, signedIdentityKey.public])
 	if (!Curve.verify(accountSignatureKey, accountMsg, accountSignature)) {
 		throw new Boom('Failed to verify account signature')
 	}
 
-	const devicePrefix = isHostedAccount ? Buffer.from([6, 6]) : Buffer.from([6, 1])
-	const deviceMsg = Buffer.concat([devicePrefix, deviceDetails, signedIdentityKey.public, accountSignatureKey])
+	const deviceMsg = Buffer.concat([WA_ADV_DEVICE_SIG_PREFIX, deviceDetails, signedIdentityKey.public, accountSignatureKey])
 	account.deviceSignature = Curve.sign(signedIdentityKey.private, deviceMsg)
 
 	const identity = createSignalIdentity(lid!, accountSignatureKey)
 	const accountEnc = encodeSignedDeviceIdentity(account, false)
-
-	const deviceIdentity = decodeAndHydrate(proto.ADVDeviceIdentity, account.details)
 
 	const reply: BinaryNode = {
 		tag: 'iq',

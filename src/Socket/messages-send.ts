@@ -57,7 +57,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		logger,
 		linkPreviewImageThumbnailWidth,
 		generateHighQualityLinkPreview,
-		options: axiosOptions,
+		options: httpRequestOptions,
 		patchMessageBeforeSending,
 		cachedGroupMetadata,
 		enableRecentMessageCache,
@@ -362,7 +362,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		const uniqueJids = [...new Set(jids)] // Deduplicate JIDs
 		const jidsRequiringFetch: string[] = []
 
-		// Check peerSessionsCache and authState.keys
+		// Check peerSessionsCache and validate sessions using libsignal loadSession
 		for (const jid of uniqueJids) {
 			const signalId = signalRepository.jidToSignalProtocolAddress(jid)
 			const cachedSession = peerSessionsCache.get(signalId)
@@ -371,8 +371,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					continue // Session exists in cache
 				}
 			} else {
-				const sessions = await authState.keys.get('session', [signalId])
-				const hasSession = !!sessions[signalId]
+				const sessionValidation = await signalRepository.validateSession(jid)
+				const hasSession = sessionValidation.exists
 				peerSessionsCache.set(signalId, hasSession)
 				if (hasSession) {
 					continue
@@ -383,7 +383,19 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 
 		if (jidsRequiringFetch.length) {
-			logger.debug({ jidsRequiringFetch }, 'fetching sessions')
+			// LID if mapped, otherwise original
+			const wireJids = await Promise.all(
+				jidsRequiringFetch.map(async jid => {
+					if (jid.includes('@s.whatsapp.net')) {
+						const lid = await signalRepository.lidMapping.getLIDForPN(jid)
+						return lid ? lid : jid
+					}
+
+					return jid
+				})
+			)
+
+			logger.debug({ jidsRequiringFetch, wireJids }, 'fetching sessions')
 			const result = await query({
 				tag: 'iq',
 				attrs: {
@@ -395,7 +407,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					{
 						tag: 'key',
 						attrs: {},
-						content: jidsRequiringFetch.map(jid => ({
+						content: wireJids.map(jid => ({
 							tag: 'user',
 							attrs: { jid }
 						}))
@@ -405,9 +417,9 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			await parseAndInjectE2ESessions(result, signalRepository)
 			didFetchNewSession = true
 
-			// Cache fetched sessions
-			for (const jid of jidsRequiringFetch) {
-				const signalId = signalRepository.jidToSignalProtocolAddress(jid)
+			// Cache fetched sessions using wire JIDs
+			for (const wireJid of wireJids) {
+				const signalId = signalRepository.jidToSignalProtocolAddress(wireJid)
 				peerSessionsCache.set(signalId, true)
 			}
 		}
@@ -1065,7 +1077,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 							thumbnailWidth: linkPreviewImageThumbnailWidth,
 							fetchOpts: {
 								timeout: 3_000,
-								...(axiosOptions || {})
+								...(httpRequestOptions || {})
 							},
 							logger,
 							uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
