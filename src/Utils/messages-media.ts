@@ -1,4 +1,5 @@
 import { Boom } from '@hapi/boom'
+import axios, { type AxiosRequestConfig } from 'axios'
 import { exec } from 'child_process'
 import * as Crypto from 'crypto'
 import { once } from 'events'
@@ -300,7 +301,7 @@ export const toBuffer = async (stream: Readable) => {
 	return Buffer.concat(chunks)
 }
 
-export const getStream = async (item: WAMediaUpload, opts?: RequestInit & { maxContentLength?: number }) => {
+export const getStream = async (item: WAMediaUpload, opts?: AxiosRequestConfig) => {
 	if (Buffer.isBuffer(item)) {
 		return { stream: toReadable(item), type: 'buffer' } as const
 	}
@@ -361,24 +362,15 @@ export async function generateThumbnail(
 	}
 }
 
-export const getHttpStream = async (url: string | URL, options: RequestInit & { isStream?: true } = {}) => {
-	const response = await fetch(url.toString(), {
-		dispatcher: options.dispatcher,
-		method: 'GET',
-		headers: options.headers as HeadersInit
-	})
-	if (!response.ok) {
-		throw new Boom(`Failed to fetch stream from ${url}`, { statusCode: response.status, data: { url } })
-	}
-
-	// @ts-ignore Node18+ Readable.fromWeb exists
-	return Readable.fromWeb(response.body as any)
+export const getHttpStream = async (url: string | URL, options: AxiosRequestConfig & { isStream?: true } = {}) => {
+	const fetched = await axios.get(url.toString(), { ...options, responseType: 'stream' })
+	return fetched.data as Readable
 }
 
 type EncryptedStreamOptions = {
 	saveOriginalFileIfRequired?: boolean
 	logger?: ILogger
-	opts?: RequestInit
+	opts?: AxiosRequestConfig
 }
 
 export const encryptedStream = async (
@@ -420,11 +412,8 @@ export const encryptedStream = async (
 		for await (const data of stream) {
 			fileLength += data.length
 
-			if (
-				type === 'remote' &&
-				(opts as any)?.maxContentLength &&
-				fileLength + data.length > (opts as any).maxContentLength
-			) {
+
+			if (type === 'remote' && opts?.maxContentLength && fileLength + data.length > opts.maxContentLength) {
 				throw new Boom(`content length exceeded when encrypting "${type}"`, {
 					data: { media, type }
 				})
@@ -498,7 +487,7 @@ const toSmallestChunkSize = (num: number) => {
 export type MediaDownloadOptions = {
 	startByte?: number
 	endByte?: number
-	options?: RequestInit
+	options?: AxiosRequestConfig<{}>
 }
 
 export const getUrlFromDirectPath = (directPath: string) => `https://${DEF_HOST}${directPath}`
@@ -544,13 +533,8 @@ export const downloadEncryptedContent = async (
 
 	const endChunk = endByte ? toSmallestChunkSize(endByte || 0) + AES_CHUNK_SIZE : undefined
 
-	const headersInit = options?.headers ? options.headers : undefined
-	const headers: Record<string, string> = {
-		...(headersInit
-			? Array.isArray(headersInit)
-				? Object.fromEntries(headersInit)
-				: (headersInit as Record<string, string>)
-			: {}),
+	const headers: AxiosRequestConfig['headers'] = {
+		...(options?.headers || {}),
 		Origin: DEFAULT_ORIGIN
 	}
 	if (startChunk || endChunk) {
@@ -563,7 +547,9 @@ export const downloadEncryptedContent = async (
 	// download the message
 	const fetched = await getHttpStream(downloadUrl, {
 		...(options || {}),
-		headers
+		headers,
+		maxBodyLength: Infinity,
+		maxContentLength: Infinity
 	})
 
 	let remainingBytes = Buffer.from([])
@@ -660,31 +646,21 @@ export const getWAUploadToServer = (
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			let result: any
 			try {
-				const stream = createReadStream(filePath)
-				const response = await fetch(url, {
-					dispatcher: fetchAgent,
-					method: 'POST',
-					body: stream as any,
+				const body = await axios.post(url, createReadStream(filePath), {
+					...options,
+					maxRedirects: 0,
 					headers: {
-						...(() => {
-							const hdrs = options?.headers
-							if (!hdrs) return {}
-							return Array.isArray(hdrs) ? Object.fromEntries(hdrs) : (hdrs as Record<string, string>)
-						})(),
+						...(options.headers || {}),
 						'Content-Type': 'application/octet-stream',
 						Origin: DEFAULT_ORIGIN
 					},
-					// Note: custom agents/proxy require undici Agent; omitted here.
-					signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined
+					httpsAgent: fetchAgent,
+					timeout: timeoutMs,
+					responseType: 'json',
+					maxBodyLength: Infinity,
+					maxContentLength: Infinity
 				})
-				let parsed: any = undefined
-				try {
-					parsed = await response.json()
-				} catch {
-					parsed = undefined
-				}
-
-				result = parsed
+				result = body.data
 
 				if (result?.url || result?.directPath) {
 					urls = {
@@ -700,9 +676,13 @@ export const getWAUploadToServer = (
 					throw new Error(`upload failed, reason: ${JSON.stringify(result)}`)
 				}
 			} catch (error: any) {
+				if (axios.isAxiosError(error)) {
+					result = error.response?.data
+				}
+				// try the next host if available
 				const isLast = hostname === hosts[uploadInfo.hosts.length - 1]?.hostname
 				logger.warn(
-					{ trace: error?.stack, uploadResult: result },
+							{ trace: error.stack, uploadResult: result },
 					`Error in uploading to ${hostname} ${isLast ? '' : ', retrying...'}`
 				)
 			}

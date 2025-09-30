@@ -1,4 +1,5 @@
 import { Boom } from '@hapi/boom'
+import axios, { type AxiosRequestConfig } from 'axios'
 import { createHash, randomBytes } from 'crypto'
 import { proto } from '../../WAProto/index.js'
 const baileysVersion = [2, 3000, 1023223821]
@@ -224,21 +225,16 @@ export const bindWaitForConnectionUpdate = (ev: BaileysEventEmitter) => bindWait
  * utility that fetches latest baileys version from the master branch.
  * Use to ensure your WA connection is always on the latest version
  */
-export const fetchLatestBaileysVersion = async (options: RequestInit = {}) => {
+export const fetchLatestBaileysVersion = async (options: AxiosRequestConfig<{}> = {}) => {
 	const URL = 'https://raw.githubusercontent.com/WhiskeySockets/Baileys/master/src/Defaults/index.ts'
 	try {
-		const response = await fetch(URL, {
-			dispatcher: options.dispatcher,
-			method: 'GET',
-			headers: options.headers
+		const result = await axios.get<string>(URL, {
+			...options,
+			responseType: 'text'
 		})
-		if (!response.ok) {
-			throw new Boom(`Failed to fetch latest Baileys version: ${response.statusText}`, { statusCode: response.status })
-		}
 
-		const text = await response.text()
 		// Extract version from line 7 (const version = [...])
-		const lines = text.split('\n')
+		const lines = result.data.split('\n')
 		const versionLine = lines[6] // Line 7 (0-indexed)
 		const versionMatch = versionLine!.match(/const version = \[(\d+),\s*(\d+),\s*(\d+)\]/)
 
@@ -265,18 +261,12 @@ export const fetchLatestBaileysVersion = async (options: RequestInit = {}) => {
  * A utility that fetches the latest web version of whatsapp.
  * Use to ensure your WA connection is always on the latest version
  */
-export const fetchLatestWaWebVersion = async (options: RequestInit = {}) => {
+export const fetchLatestWaWebVersion = async (options: AxiosRequestConfig<{}>) => {
 	try {
-		const response = await fetch('https://web.whatsapp.com/sw.js', {
-			dispatcher: options.dispatcher,
-			method: 'GET',
-			headers: options.headers
+		const { data } = await axios.get('https://web.whatsapp.com/sw.js', {
+			...options,
+			responseType: 'json'
 		})
-		if (!response.ok) {
-			throw new Boom(`Failed to fetch sw.js: ${response.statusText}`, { statusCode: response.status })
-		}
-
-		const data = await response.text()
 
 		const regex = /\\?"client_revision\\?":\s*(\d+)/
 		const match = data.match(regex)

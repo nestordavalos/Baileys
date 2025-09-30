@@ -1,4 +1,5 @@
 import { Boom } from '@hapi/boom'
+import axios from 'axios'
 import { randomBytes } from 'crypto'
 import { promises as fs } from 'fs'
 import { type Transform } from 'stream'
@@ -454,10 +455,9 @@ export const generateWAMessageContent = async (
 		if (options.getProfilePicUrl) {
 			const pfpUrl = await options.getProfilePicUrl(message.groupInvite.jid, 'preview')
 			if (pfpUrl) {
-				const resp = await fetch(pfpUrl, { method: 'GET', dispatcher: options?.options?.dispatcher })
-				if (resp.ok) {
-					const buf = Buffer.from(await resp.arrayBuffer())
-					m.groupInviteMessage.jpegThumbnail = buf
+				const resp = await axios.get(pfpUrl, { responseType: 'arraybuffer' })
+				if (resp.status === 200) {
+					m.groupInviteMessage.jpegThumbnail = resp.data
 				}
 			}
 		}
@@ -936,8 +936,8 @@ export const downloadMediaMessage = async <Type extends 'buffer' | 'stream'>(
 	const result = await downloadMsg().catch(async error => {
 		if (
 			ctx &&
-			typeof error?.status === 'number' && // treat errors with status as HTTP failures requiring reupload
-			REUPLOAD_REQUIRED_STATUS.includes(error.status as number)
+			axios.isAxiosError(error) && // check if the message requires a reupload
+			REUPLOAD_REQUIRED_STATUS.includes(error.response?.status!)
 		) {
 			ctx.logger.info({ key: message.key }, 'sending reupload media request...')
 			// request reupload
