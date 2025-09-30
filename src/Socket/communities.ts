@@ -84,19 +84,14 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 			try {
 				logger.info({ groupNode }, 'groupNode')
 				const metadata = await sock.groupMetadata(`${groupNode.attrs.id}@g.us`)
-				return metadata ? metadata : Optional.empty()
+				return metadata ? metadata : null
 			} catch (error) {
-				console.error('Error parsing group metadata:', error)
-				return Optional.empty()
+				logger.error(error, 'Error parsing group metadata')
+				return null
 			}
 		}
 
-		return Optional.empty()
-	}
-
-	const Optional = {
-		empty: () => null,
-		of: (value: null) => (value !== null ? { value } : null)
+		return null
 	}
 
 	sock.ws.on('CB:ib,,dirty', async (node: BinaryNode) => {
@@ -149,6 +144,26 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 
 			return await parseGroupResult(result)
 		},
+		communityCreateGroup: async (subject: string, participants: string[], parentCommunityJid: string) => {
+			const key = generateMessageIDV2()
+			const result = await communityQuery('@g.us', 'set', [
+				{
+					tag: 'create',
+					attrs: {
+						subject,
+						key
+					},
+					content: [
+						...participants.map(jid => ({
+							tag: 'participant',
+							attrs: { jid }
+						})),
+						{ tag: 'linked_parent', attrs: { jid: parentCommunityJid } }
+					]
+				}
+			])
+			return await parseGroupResult(result)
+		},
 		communityLeave: async (id: string) => {
 			await communityQuery('@g.us', 'set', [
 				{
@@ -166,6 +181,68 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 					content: Buffer.from(subject, 'utf-8')
 				}
 			])
+		},
+		communityLinkGroup: async (groupJid: string, parentCommunityJid: string) => {
+			await communityQuery(parentCommunityJid, 'set', [
+				{
+					tag: 'links',
+					attrs: {},
+					content: [
+						{
+							tag: 'link',
+							attrs: { link_type: 'sub_group' },
+							content: [{ tag: 'group', attrs: { jid: groupJid } }]
+						}
+					]
+				}
+			])
+		},
+		communityUnlinkGroup: async (groupJid: string, parentCommunityJid: string) => {
+			await communityQuery(parentCommunityJid, 'set', [
+				{
+					tag: 'unlink',
+					attrs: { unlink_type: 'sub_group' },
+					content: [{ tag: 'group', attrs: { jid: groupJid } }]
+				}
+			])
+		},
+		communityFetchLinkedGroups: async (jid: string) => {
+			let communityJid = jid
+			let isCommunity = false
+
+			// Try to determine if it is a subgroup or a community
+			const metadata = await sock.groupMetadata(jid)
+			if (metadata.linkedParent) {
+				// It is a subgroup, get the community jid
+				communityJid = metadata.linkedParent
+			} else {
+				// It is a community
+				isCommunity = true
+			}
+
+			// Fetch all subgroups of the community
+			const result = await communityQuery(communityJid, 'get', [{ tag: 'sub_groups', attrs: {} }])
+
+			const linkedGroupsData = []
+			const subGroupsNode = getBinaryNodeChild(result, 'sub_groups')
+			if (subGroupsNode) {
+				const groupNodes = getBinaryNodeChildren(subGroupsNode, 'group')
+				for (const groupNode of groupNodes) {
+					linkedGroupsData.push({
+						id: groupNode.attrs.id ? jidEncode(groupNode.attrs.id, 'g.us') : undefined,
+						subject: groupNode.attrs.subject || '',
+						creation: groupNode.attrs.creation ? Number(groupNode.attrs.creation) : undefined,
+						owner: groupNode.attrs.creator ? jidNormalizedUser(groupNode.attrs.creator) : undefined,
+						size: groupNode.attrs.size ? Number(groupNode.attrs.size) : undefined
+					})
+				}
+			}
+
+			return {
+				communityJid,
+				isCommunity,
+				linkedGroups: linkedGroupsData
+			}
 		},
 		communityRequestParticipantsList: async (jid: string) => {
 			const result = await communityQuery(jid, 'get', [
@@ -271,54 +348,67 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 		communityAcceptInviteV4: ev.createBufferedFunction(
 			async (key: string | WAMessageKey, inviteMessage: proto.Message.IGroupInviteMessage) => {
 				key = typeof key === 'string' ? { remoteJid: key } : key
-				const results = await communityQuery(inviteMessage.groupJid!, 'set', [
-					{
-						tag: 'accept',
-						attrs: {
-							code: inviteMessage.inviteCode!,
-							expiration: inviteMessage.inviteExpiration!.toString(),
-							admin: key.remoteJid!
-						}
-					}
-				])
-
-				// if we have the full message key
-				// update the invite message to be expired
-				if (key.id) {
-					// create new invite message that is expired
-					inviteMessage = proto.Message.GroupInviteMessage.fromObject(inviteMessage)
-					inviteMessage.inviteExpiration = 0
-					inviteMessage.inviteCode = ''
-					ev.emit('messages.update', [
+				logger.debug({ key, inviteMessage }, 'Attempting to accept community invite V4')
+				try {
+					const results = await communityQuery(inviteMessage.groupJid!, 'set', [
 						{
-							key,
-							update: {
-								message: {
-									groupInviteMessage: inviteMessage
-								}
+							tag: 'accept',
+							attrs: {
+								code: inviteMessage.inviteCode!,
+								expiration: inviteMessage.inviteExpiration!.toString(),
+								admin: key.remoteJid!
 							}
 						}
 					])
-				}
+					logger.debug({ results }, 'Community invite V4 accepted successfully')
 
-				// generate the community add message
-				await upsertMessage(
-					{
-						key: {
-							remoteJid: inviteMessage.groupJid,
-							id: generateMessageIDV2(sock.user?.id),
-							fromMe: false,
-							participant: key.remoteJid
+					// if we have the full message key
+					// update the invite message to be expired
+					if (key.id) {
+						// create new invite message that is expired
+						inviteMessage = proto.Message.GroupInviteMessage.create(inviteMessage)
+						inviteMessage.inviteExpiration = 0
+						inviteMessage.inviteCode = ''
+						ev.emit('messages.update', [
+							{
+								key,
+								update: {
+									message: {
+										groupInviteMessage: inviteMessage
+									}
+								}
+							}
+						])
+						logger.debug({ key }, 'Community invite message updated to expired')
+					}
+
+					// generate the community add message
+					logger.debug(
+						{ groupJid: inviteMessage.groupJid, participant: key.remoteJid },
+						'Upserting community add message'
+					)
+					await upsertMessage(
+						{
+							key: {
+								remoteJid: inviteMessage.groupJid,
+								id: generateMessageIDV2(sock.user?.id),
+								fromMe: false,
+								participant: key.remoteJid
+							},
+							messageStubType: WAMessageStubType.GROUP_PARTICIPANT_ADD,
+							messageStubParameters: [authState.creds.me!.id],
+							participant: key.remoteJid,
+							messageTimestamp: unixTimestampSeconds()
 						},
-						messageStubType: WAMessageStubType.GROUP_PARTICIPANT_ADD,
-						messageStubParameters: [authState.creds.me!.id],
-						participant: key.remoteJid,
-						messageTimestamp: unixTimestampSeconds()
-					},
-					'notify'
-				)
+						'notify'
+					)
+					logger.debug('Community add message upserted successfully')
 
-				return results.attrs.from
+					return results.attrs.from
+				} catch (error) {
+					logger.error({ error, key, inviteMessage }, 'Error accepting community invite V4')
+					throw error
+				}
 			}
 		),
 		communityGetInviteInfo: async (code: string) => {

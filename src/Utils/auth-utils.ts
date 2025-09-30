@@ -1,6 +1,7 @@
 import NodeCache from '@cacheable/node-cache'
 import { Mutex } from 'async-mutex'
 import { randomBytes } from 'crypto'
+import { LRUCache } from 'lru-cache'
 import { DEFAULT_CACHE_TTLS } from '../Defaults'
 import type {
 	AuthenticationCreds,
@@ -47,7 +48,7 @@ export function makeCacheableSignalKeyStore(
 				const data: { [_: string]: SignalDataTypeMap[typeof type] } = {}
 				const idsToFetch: string[] = []
 				for (const id of ids) {
-					const item = cache.get<SignalDataTypeMap[typeof type]>(getUniqueId(type, id)) as any
+					const item = (await cache.get<SignalDataTypeMap[typeof type]>(getUniqueId(type, id))) as any
 					if (typeof item !== 'undefined') {
 						data[id] = item
 					} else {
@@ -75,7 +76,7 @@ export function makeCacheableSignalKeyStore(
 				let keys = 0
 				for (const type in data) {
 					for (const id in data[type as keyof SignalDataTypeMap]) {
-						cache.set(getUniqueId(type, id), data[type as keyof SignalDataTypeMap]![id]!)
+						await cache.set(getUniqueId(type, id), data[type as keyof SignalDataTypeMap]![id]!)
 						keys += 1
 					}
 				}
@@ -86,7 +87,7 @@ export function makeCacheableSignalKeyStore(
 			})
 		},
 		async clear() {
-			cache.flushAll()
+			await cache.flushAll()
 			await store.clear?.()
 		}
 	}
@@ -285,55 +286,12 @@ export const addTransactionCapability = (
 	let transactionCache: SignalDataSet = {}
 	let mutations: SignalDataSet = {}
 
-	// Map to hold mutexes for different key types
-	const mutexMap = new Map<string, Mutex>()
-
-	// Track last usage time for sender key mutexes (for cleanup)
-	const mutexLastUsed = new Map<string, number>()
-
-	// Mutex expiration time: 1 hour in milliseconds
-	const SENDER_KEY_MUTEX_EXPIRY_MS = 60 * 60 * 1000
-
-	// Cleanup interval: every 30 minutes
-	const CLEANUP_INTERVAL_MS = 30 * 60 * 1000
-
-	// Cleanup timer
-	let cleanupTimer: NodeJS.Timer | null = null
-
-	// Start cleanup timer if not already running
-	function startCleanupTimer() {
-		if (!cleanupTimer) {
-			cleanupTimer = setInterval(() => {
-				cleanupExpiredMutexes()
-			}, CLEANUP_INTERVAL_MS)
-		}
-	}
-
-	startCleanupTimer()
-
-	// Clean up expired mutexes
-	function cleanupExpiredMutexes() {
-		const now = Date.now()
-		const expiredKeys: string[] = []
-
-		for (const [key, lastUsed] of mutexLastUsed.entries()) {
-			if (now - lastUsed > SENDER_KEY_MUTEX_EXPIRY_MS) {
-				const mutex = mutexMap.get(key)
-				if (mutex && !mutex.isLocked()) {
-					expiredKeys.push(key)
-				}
-			}
-		}
-
-		if (expiredKeys.length > 0) {
-			for (const key of expiredKeys) {
-				mutexMap.delete(key)
-				mutexLastUsed.delete(key)
-			}
-
-			logger.info({ expiredKeys: expiredKeys.length }, 'cleaned up expired mutexes')
-		}
-	}
+	// LRU Cache to hold mutexes for different key types
+	const mutexCache = new LRUCache<string, Mutex>({
+		ttl: 60 * 60 * 1000, // 1 hour
+		ttlAutopurge: true,
+		updateAgeOnGet: true
+	})
 
 	let transactionsInProgress = 0
 
@@ -351,20 +309,13 @@ export const addTransactionCapability = (
 
 	// Get or create a mutex for a specific key name
 	function getMutex(key: string): Mutex {
-		let mutex = mutexMap.get(key)
+		let mutex = mutexCache.get(key)
 		if (!mutex) {
 			mutex = new Mutex()
-			mutexMap.set(key, mutex)
-
-			if (mutexMap.size === 1) {
-				startCleanupTimer()
-			}
-
+			mutexCache.set(key, mutex)
 			logger.info({ key }, 'created new mutex')
 		}
 
-		// Atualizar último uso para cleanup
-		mutexLastUsed.set(key, Date.now())
 		return mutex
 	}
 

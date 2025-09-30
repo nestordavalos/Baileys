@@ -19,19 +19,13 @@ import {
 	LabelAssociationType,
 	type MessageLabelAssociation
 } from '../Types/LabelAssociation'
-import {
-	type BinaryNode,
-	getBinaryNodeChild,
-	getBinaryNodeChildren,
-	isJidGroup,
-	isJidUser,
-	jidNormalizedUser
-} from '../WABinary'
+import { type BinaryNode, getBinaryNodeChild, getBinaryNodeChildren, isJidGroup, jidNormalizedUser } from '../WABinary'
 import { aesDecrypt, aesEncrypt, hkdf, hmacSign } from './crypto'
 import { toNumber } from './generics'
 import type { ILogger } from './logger'
 import { LT_HASH_ANTI_TAMPERING } from './lt-hash'
 import { downloadContentFromMessage } from './messages-media'
+import { decodeAndHydrate } from './proto-utils'
 
 type FetchAppStateSyncKey = (keyId: string) => Promise<proto.Message.IAppStateSyncKeyData | null | undefined>
 
@@ -161,7 +155,7 @@ export const encodeSyncdPatch = async (
 	state = { ...state, indexValueMap: { ...state.indexValueMap } }
 
 	const indexBuffer = Buffer.from(JSON.stringify(index))
-	const dataProto = proto.SyncActionData.fromObject({
+	const dataProto = proto.SyncActionData.create({
 		index: indexBuffer,
 		value: syncAction,
 		padding: new Uint8Array(0),
@@ -240,16 +234,16 @@ export const decodeSyncdMutations = async (
 		}
 
 		const result = aesDecrypt(encContent, key.valueEncryptionKey)
-		const syncAction = proto.SyncActionData.decode(result)
+		const syncAction = decodeAndHydrate(proto.SyncActionData, result)
 
 		if (validateMacs) {
-			const hmac = hmacSign(syncAction.index!, key.indexKey)
+			const hmac = hmacSign(syncAction.index, key.indexKey)
 			if (Buffer.compare(hmac, record.index!.blob!) !== 0) {
 				throw new Boom('HMAC index verification failed')
 			}
 		}
 
-		const indexStr = Buffer.from(syncAction.index!).toString()
+		const indexStr = Buffer.from(syncAction.index).toString()
 		onMutation({ syncAction, index: JSON.parse(indexStr) })
 
 		ltGenerator.mix({
@@ -334,9 +328,9 @@ export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequ
 					snapshotNode.content = Buffer.from(Object.values(snapshotNode.content))
 				}
 
-				const blobRef = proto.ExternalBlobReference.decode(snapshotNode.content as Buffer)
+				const blobRef = decodeAndHydrate(proto.ExternalBlobReference, snapshotNode.content as Buffer)
 				const data = await downloadExternalBlob(blobRef, options)
-				snapshot = proto.SyncdSnapshot.decode(data)
+				snapshot = decodeAndHydrate(proto.SyncdSnapshot, data)
 			}
 
 			for (let { content } of patches) {
@@ -345,7 +339,7 @@ export const extractSyncdPatches = async (result: BinaryNode, options: AxiosRequ
 						content = Buffer.from(Object.values(content))
 					}
 
-					const syncd = proto.SyncdPatch.decode(content as Uint8Array)
+					const syncd = decodeAndHydrate(proto.SyncdPatch, content as Uint8Array)
 					if (!syncd.version) {
 						syncd.version = { version: +collectionNode.attrs.version! + 1 }
 					}
@@ -373,7 +367,7 @@ export const downloadExternalBlob = async (blob: proto.IExternalBlobReference, o
 
 export const downloadExternalPatch = async (blob: proto.IExternalBlobReference, options: AxiosRequestConfig<{}>) => {
 	const buffer = await downloadExternalBlob(blob, options)
-	const syncData = proto.SyncdMutations.decode(buffer)
+	const syncData = decodeAndHydrate(proto.SyncdMutations, buffer)
 	return syncData
 }
 
@@ -666,6 +660,22 @@ export const chatModificationToAppPatch = (mod: ChatModification, jid: string) =
 			apiVersion: 1,
 			operation: OP.SET
 		}
+	} else if ('quickReply' in mod) {
+		patch = {
+			syncAction: {
+				quickReplyAction: {
+					count: 0,
+					deleted: mod.quickReply.deleted || false,
+					keywords: [],
+					message: mod.quickReply.message || '',
+					shortcut: mod.quickReply.shortcut || ''
+				}
+			},
+			index: ['quick_reply', mod.quickReply.timestamp || String(Math.floor(Date.now() / 1000))],
+			type: 'regular',
+			apiVersion: 2,
+			operation: OP.SET
+		}
 	} else if ('addLabel' in mod) {
 		patch = {
 			syncAction: {
@@ -829,7 +839,7 @@ export const processSyncAction = (
 				id: id!,
 				name: action.contactAction.fullName!,
 				lid: action.contactAction.lidJid || undefined,
-				jid: isJidUser(id) ? id : undefined
+				phoneNumber: action.contactAction.pnJid || undefined
 			}
 		])
 	} else if (action?.pushNameSetting) {
