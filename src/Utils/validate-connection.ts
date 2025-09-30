@@ -163,7 +163,7 @@ export const configureSuccessfulPairing = (
 	const deviceIdentity = decodeAndHydrate(proto.ADVDeviceIdentity, deviceDetails)
 
 	const accountSignaturePrefix =
-		deviceIdentity.deviceType == proto.ADVEncryptionType.HOSTED
+		deviceIdentity.deviceType === proto.ADVEncryptionType.HOSTED
 			? WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX
 			: WA_ADV_ACCOUNT_SIG_PREFIX
 	const accountMsg = Buffer.concat([accountSignaturePrefix, deviceDetails, signedIdentityKey.public])
