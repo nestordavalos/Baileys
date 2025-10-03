@@ -17,6 +17,7 @@ export const TAGS = {
 	NIBBLE_8: 255,
 	PACKED_MAX: 127
 }
+
 export const DOUBLE_BYTE_TOKENS = [
 	[
 		'read-self',
