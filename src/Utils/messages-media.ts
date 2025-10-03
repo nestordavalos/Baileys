@@ -646,20 +646,20 @@ export const getWAUploadToServer = (
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			let result: any
 			try {
-				const body = await axios.post(url, createReadStream(filePath), {
-					...options,
-					maxRedirects: 0,
-					headers: {
-						...(options.headers || {}),
-						'Content-Type': 'application/octet-stream',
-						Origin: DEFAULT_ORIGIN
-					},
-					httpsAgent: fetchAgent,
-					timeout: timeoutMs,
-					responseType: 'json',
-					maxBodyLength: Infinity,
-					maxContentLength: Infinity
-				})
+                               const body = await axios.post(url, createReadStream(filePath), {
+                                       ...options,
+                                       maxRedirects: 0,
+                                       headers: {
+                                               ...(options.headers || {}),
+                                               'Content-Type': 'application/octet-stream',
+                                               Origin: DEFAULT_ORIGIN
+                                       },
+                                       httpsAgent: fetchAgent,
+                                       timeout: timeoutMs,
+                                       responseType: 'json',
+                                       maxBodyLength: Infinity,
+                                       maxContentLength: Infinity
+                               })
 				result = body.data
 
 				if (result?.url || result?.directPath) {

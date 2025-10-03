@@ -5,8 +5,7 @@ import {
 	KEY_BUNDLE_TYPE,
 	WA_ADV_ACCOUNT_SIG_PREFIX,
 	WA_ADV_DEVICE_SIG_PREFIX,
-	WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX,
-	WA_ADV_HOSTED_DEVICE_SIG_PREFIX
+	WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX
 } from '../Defaults'
 import type { AuthenticationCreds, SignalCreds, SocketConfig } from '../Types'
 import { type BinaryNode, getBinaryNodeChild, jidDecode, S_WHATSAPP_NET } from '../WABinary'

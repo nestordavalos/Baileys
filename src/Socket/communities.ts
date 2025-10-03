@@ -84,14 +84,19 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 			try {
 				logger.info({ groupNode }, 'groupNode')
 				const metadata = await sock.groupMetadata(`${groupNode.attrs.id}@g.us`)
-				return metadata ? metadata : null
+				return metadata ? metadata : Optional.empty()
 			} catch (error) {
-				logger.error(error, 'Error parsing group metadata')
-				return null
+				console.error('Error parsing group metadata:', error)
+				return Optional.empty()
 			}
 		}
 
-		return null
+		return Optional.empty()
+	}
+
+	const Optional = {
+		empty: () => null,
+		of: (value: null) => (value !== null ? { value } : null)
 	}
 
 	sock.ws.on('CB:ib,,dirty', async (node: BinaryNode) => {
@@ -348,67 +353,54 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 		communityAcceptInviteV4: ev.createBufferedFunction(
 			async (key: string | WAMessageKey, inviteMessage: proto.Message.IGroupInviteMessage) => {
 				key = typeof key === 'string' ? { remoteJid: key } : key
-				logger.debug({ key, inviteMessage }, 'Attempting to accept community invite V4')
-				try {
-					const results = await communityQuery(inviteMessage.groupJid!, 'set', [
+				const results = await communityQuery(inviteMessage.groupJid!, 'set', [
+					{
+						tag: 'accept',
+						attrs: {
+							code: inviteMessage.inviteCode!,
+							expiration: inviteMessage.inviteExpiration!.toString(),
+							admin: key.remoteJid!
+						}
+					}
+				])
+
+				// if we have the full message key
+				// update the invite message to be expired
+				if (key.id) {
+					// create new invite message that is expired
+					inviteMessage = proto.Message.GroupInviteMessage.create(inviteMessage)
+					inviteMessage.inviteExpiration = 0
+					inviteMessage.inviteCode = ''
+					ev.emit('messages.update', [
 						{
-							tag: 'accept',
-							attrs: {
-								code: inviteMessage.inviteCode!,
-								expiration: inviteMessage.inviteExpiration!.toString(),
-								admin: key.remoteJid!
+							key,
+							update: {
+								message: {
+									groupInviteMessage: inviteMessage
+								}
 							}
 						}
 					])
-					logger.debug({ results }, 'Community invite V4 accepted successfully')
-
-					// if we have the full message key
-					// update the invite message to be expired
-					if (key.id) {
-						// create new invite message that is expired
-						inviteMessage = proto.Message.GroupInviteMessage.create(inviteMessage)
-						inviteMessage.inviteExpiration = 0
-						inviteMessage.inviteCode = ''
-						ev.emit('messages.update', [
-							{
-								key,
-								update: {
-									message: {
-										groupInviteMessage: inviteMessage
-									}
-								}
-							}
-						])
-						logger.debug({ key }, 'Community invite message updated to expired')
-					}
-
-					// generate the community add message
-					logger.debug(
-						{ groupJid: inviteMessage.groupJid, participant: key.remoteJid },
-						'Upserting community add message'
-					)
-					await upsertMessage(
-						{
-							key: {
-								remoteJid: inviteMessage.groupJid,
-								id: generateMessageIDV2(sock.user?.id),
-								fromMe: false,
-								participant: key.remoteJid
-							},
-							messageStubType: WAMessageStubType.GROUP_PARTICIPANT_ADD,
-							messageStubParameters: [authState.creds.me!.id],
-							participant: key.remoteJid,
-							messageTimestamp: unixTimestampSeconds()
-						},
-						'notify'
-					)
-					logger.debug('Community add message upserted successfully')
-
-					return results.attrs.from
-				} catch (error) {
-					logger.error({ error, key, inviteMessage }, 'Error accepting community invite V4')
-					throw error
 				}
+
+				// generate the community add message
+				await upsertMessage(
+					{
+						key: {
+							remoteJid: inviteMessage.groupJid,
+							id: generateMessageIDV2(sock.user?.id),
+							fromMe: false,
+							participant: key.remoteJid
+						},
+						messageStubType: WAMessageStubType.GROUP_PARTICIPANT_ADD,
+						messageStubParameters: [authState.creds.me!.id],
+						participant: key.remoteJid,
+						messageTimestamp: unixTimestampSeconds()
+					},
+					'notify'
+				)
+
+				return results.attrs.from
 			}
 		),
 		communityGetInviteInfo: async (code: string) => {

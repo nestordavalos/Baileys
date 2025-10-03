@@ -7,19 +7,21 @@ import {
 	type BinaryNode,
 	isJidBroadcast,
 	isJidGroup,
+	isJidHostedLidUser,
+	isJidHostedPnUser,
 	isJidMetaAI,
 	isJidNewsletter,
 	isJidStatusBroadcast,
 	isLidUser,
-	isPnUser,
-	transferDevice
+	isPnUser
+	//	transferDevice
 } from '../WABinary'
 import { unpadRandomMax16 } from './generics'
 import type { ILogger } from './logger'
 import { decodeAndHydrate } from './proto-utils'
 
 const getDecryptionJid = async (sender: string, repository: SignalRepositoryWithLIDStore): Promise<string> => {
-	if (!sender.includes('@s.whatsapp.net')) {
+	if (sender.includes('@lid')) {
 		return sender
 	}
 
@@ -95,7 +97,7 @@ export const extractAddressingContext = (stanza: BinaryNode) => {
 		senderAlt = stanza.attrs.participant_pn || stanza.attrs.sender_pn || stanza.attrs.peer_recipient_pn
 		recipientAlt = stanza.attrs.recipient_pn
 		// with device data
-		if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
+		//if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
 	} else {
 		// Message is PN-addressed: sender is PN, extract corresponding LID
 		// without device data
@@ -103,7 +105,7 @@ export const extractAddressingContext = (stanza: BinaryNode) => {
 		recipientAlt = stanza.attrs.recipient_lid
 
 		//with device data
-		if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
+		//if (sender && senderAlt) senderAlt = transferDevice(sender, senderAlt)
 	}
 
 	return {
@@ -133,7 +135,7 @@ export function decodeMessageNode(stanza: BinaryNode, meId: string, meLid: strin
 	const isMe = (jid: string) => areJidsSameUser(jid, meId)
 	const isMeLid = (jid: string) => areJidsSameUser(jid, meLid)
 
-	if (isPnUser(from) || isLidUser(from)) {
+	if (isPnUser(from) || isLidUser(from) || isJidHostedLidUser(from) || isJidHostedPnUser(from)) {
 		if (recipient && !isJidMetaAI(recipient)) {
 			if (!isMe(from!) && !isMeLid(from!)) {
 				throw new Boom('receipient present, but msg not from me', { data: stanza })
@@ -258,9 +260,9 @@ export const decryptMessageNode = (
 
 					let msgBuffer: Uint8Array
 
-					const user = author
+					const user = isPnUser(sender) ? sender : author // TODO: flaky logic
 
-					const decryptionJid = isPnUser(user) ? await getDecryptionJid(user, repository) : user
+					const decryptionJid = await getDecryptionJid(user, repository)
 
 					if (tag !== 'plaintext') {
 						await storeMappingFromEnvelope(stanza, user, repository, decryptionJid, logger)
