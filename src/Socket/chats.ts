@@ -26,6 +26,7 @@ import type {
 	WAReadReceiptsValue
 } from '../Types'
 import { ALL_WA_PATCH_NAMES } from '../Types'
+import type { QuickReplyAction } from '../Types/Bussines.js'
 import type { LabelActionBody } from '../Types/Label'
 import { SyncState } from '../Types/State'
 import {
@@ -52,7 +53,7 @@ import {
 	S_WHATSAPP_NET
 } from '../WABinary'
 import { USyncQuery, USyncUser } from '../WAUSync'
-import { makeUSyncSocket } from './usync'
+import { makeSocket } from './socket.js'
 const MAX_SYNC_ATTEMPTS = 2
 
 export const makeChatsSocket = (config: SocketConfig) => {
@@ -64,8 +65,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		shouldIgnoreJid,
 		shouldSyncHistoryMessage
 	} = config
-	const sock = makeUSyncSocket(config)
-	const { ev, ws, authState, generateMessageTag, sendNode, query, onUnexpectedError } = sock
+	const sock = makeSocket(config)
+	const { ev, ws, authState, generateMessageTag, sendNode, query, signalRepository, onUnexpectedError } = sock
 
 	let privacySettings: { [_: string]: string } | undefined
 
@@ -218,21 +219,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}
 
 		return botList
-	}
-
-	const onWhatsApp = async (...jids: string[]) => {
-		const usyncQuery = new USyncQuery().withContactProtocol().withLIDProtocol()
-
-		for (const jid of jids) {
-			const phone = `+${jid.replace('+', '').split('@')[0]?.split(':')[0]}`
-			usyncQuery.withUser(new USyncUser().withPhone(phone))
-		}
-
-		const results = await sock.executeUSyncQuery(usyncQuery)
-
-		if (results) {
-			return results.list.filter(a => !!a.contact).map(({ contact, id, lid }) => ({ jid: id, exists: contact, lid }))
-		}
 	}
 
 	const fetchStatus = async (...jids: string[]) => {
@@ -615,6 +601,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	 * type = "image for the high res picture"
 	 */
 	const profilePictureUrl = async (jid: string, type: 'preview' | 'image' = 'preview', timeoutMs?: number) => {
+		// TOOD: Add support for tctoken, existingID, and newsletter + group options
 		jid = jidNormalizedUser(jid)
 		const result = await query(
 			{
@@ -631,6 +618,28 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		)
 		const child = getBinaryNodeChild(result, 'picture')
 		return child?.attrs?.url
+	}
+
+	const createCallLink = async (type: 'audio' | 'video', event?: { startTime: number }, timeoutMs?: number) => {
+		const result = await query(
+			{
+				tag: 'call',
+				attrs: {
+					id: generateMessageTag(),
+					to: '@call'
+				},
+				content: [
+					{
+						tag: 'link_create',
+						attrs: { media: type },
+						content: event ? [{ tag: 'event', attrs: { start_time: String(event.startTime) } }] : undefined
+					}
+				]
+			},
+			timeoutMs
+		)
+		const child = getBinaryNodeChild(result, 'link_create')
+		return child?.attrs?.token
 	}
 
 	const sendPresenceUpdate = async (type: WAPresence, toJid?: string) => {
@@ -976,6 +985,30 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	}
 
 	/**
+	 * Add or Edit Quick Reply
+	 */
+	const addOrEditQuickReply = (quickReply: QuickReplyAction) => {
+		return chatModify(
+			{
+				quickReply
+			},
+			''
+		)
+	}
+
+	/**
+	 * Remove Quick Reply
+	 */
+	const removeQuickReply = (timestamp: string) => {
+		return chatModify(
+			{
+				quickReply: { timestamp, deleted: true }
+			},
+			''
+		)
+	}
+
+	/**
 	 * queries need to be fired on connection open
 	 * help ensure parity with WA Web
 	 * */
@@ -1045,6 +1078,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 				}
 			})(),
 			processMessage(msg, {
+				signalRepository,
 				shouldProcessHistoryMsg,
 				placeholderResendCache,
 				ev,
@@ -1110,7 +1144,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		ev.buffer()
 
 		const willSyncHistory = shouldSyncHistoryMessage(
-			proto.Message.HistorySyncNotification.fromObject({
+			proto.Message.HistorySyncNotification.create({
 				syncType: proto.HistorySync.HistorySyncType.RECENT
 			})
 		)
@@ -1139,6 +1173,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 
 	return {
 		...sock,
+		createCallLink,
 		getBotListV2,
 		processingMutex,
 		fetchPrivacySettings,
@@ -1147,7 +1182,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		sendPresenceUpdate,
 		presenceSubscribe,
 		profilePictureUrl,
-		onWhatsApp,
 		fetchBlocklist,
 		fetchStatus,
 		fetchDisappearingDuration,
@@ -1177,6 +1211,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		removeChatLabel,
 		addMessageLabel,
 		removeMessageLabel,
-		star
+		star,
+		addOrEditQuickReply,
+		removeQuickReply
 	}
 }
