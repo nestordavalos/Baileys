@@ -4,7 +4,7 @@ import type { AuthenticationState, SocketConfig, WAVersion } from '../Types'
 import { Browsers } from '../Utils/browser-utils'
 import logger from '../Utils/logger'
 
-const version = [2, 3000, 1028340218]
+const version = [2, 3000, 1027934701]
 
 export const UNAUTHORIZED_CODES = [401, 403, 419]
 
@@ -29,6 +29,7 @@ export const NOISE_WA_HEADER = Buffer.from([87, 65, 6, DICT_VERSION]) // last is
 /** from: https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url */
 export const URL_REGEX = /https:\/\/(?![^:@\/\s]+:[^:@\/\s]+@)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(:\d+)?(\/[^\s]*)?/g
 
+// TODO: Add WA root CA
 export const WA_CERT_DETAILS = {
 	SERIAL: 0
 }
@@ -38,12 +39,14 @@ export const PROCESSABLE_HISTORY_TYPES = [
 	proto.Message.HistorySyncNotification.HistorySyncType.PUSH_NAME,
 	proto.Message.HistorySyncNotification.HistorySyncType.RECENT,
 	proto.Message.HistorySyncNotification.HistorySyncType.FULL,
-	proto.Message.HistorySyncNotification.HistorySyncType.ON_DEMAND
+	proto.Message.HistorySyncNotification.HistorySyncType.ON_DEMAND,
+	proto.Message.HistorySyncNotification.HistorySyncType.NON_BLOCKING_DATA,
+	proto.Message.HistorySyncNotification.HistorySyncType.INITIAL_STATUS_V3
 ]
 
 export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 	version: version as WAVersion,
-	browser: Browsers.ubuntu('Chrome'),
+	browser: Browsers.macOS('Chrome'),
 	waWebSocketUrl: 'wss://web.whatsapp.com/ws/chat',
 	connectTimeoutMs: 20_000,
 	keepAliveIntervalMs: 30_000,
@@ -56,7 +59,7 @@ export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 	fireInitQueries: true,
 	auth: undefined as unknown as AuthenticationState,
 	markOnlineOnConnect: true,
-	syncFullHistory: false,
+	syncFullHistory: true,
 	patchMessageBeforeSending: msg => msg,
 	shouldSyncHistoryMessage: () => true,
 	shouldIgnoreJid: () => false,
@@ -70,7 +73,7 @@ export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 		patch: false,
 		snapshot: false
 	},
-	countryCode: 'GB',
+	countryCode: 'US',
 	getMessage: async () => undefined,
 	cachedGroupMetadata: async () => undefined,
 	makeSignalRepository: makeLibSignalRepository
@@ -117,7 +120,7 @@ export const MEDIA_KEYS = Object.keys(MEDIA_PATH_MAP) as MediaType[]
 
 export const MIN_PREKEY_COUNT = 5
 
-export const INITIAL_PREKEY_COUNT = 30
+export const INITIAL_PREKEY_COUNT = 812
 
 export const UPLOAD_TIMEOUT = 30000 // 30 seconds
 export const MIN_UPLOAD_INTERVAL = 5000 // 5 seconds minimum between uploads
